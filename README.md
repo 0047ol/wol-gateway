@@ -1,5 +1,11 @@
 # WOL Gateway
 
+**界面截图 / Screenshots**
+
+![网关管理桌面界面 / Gateway management on desktop](screenshots/gateway-overview-desktop.png)
+
+![设备列表移动端界面 / Device list on mobile](screenshots/device-list-mobile.png)
+
 面向家庭和小型办公室的 ESP32-C3 局域网设备管理系统。网关通过 Wi-Fi 接入服务端，扫描和监测局域网设备，并提供 Wake-on-LAN 唤醒、Windows 关机服务、用户权限、设备分享和固件远程 OTA。
 
 项目包含 FastAPI 网站与设备接入服务、ESP32-C3 固件、Windows WOL 关机服务，以及离线部署配置向导。部署向导只在浏览器本地生成配置文件，不会上传主机名、密码或密钥。
@@ -62,4 +68,68 @@ Windows 服务可用 windows-agent/native/Build.ps1 构建。真实硬件刷写�
 
 ## English
 
-WOL Gateway is a self-hosted ESP32-C3 and LAN device management system with Wake-on-LAN, an optional Windows shutdown service, multi-user access control, signed firmware OTA, and an offline deployment configurator. It is licensed under AGPL-3.0-or-later. Modified files must carry prominent notices with relevant dates. When modified versions are conveyed or offered as a network service, provide corresponding source under the license terms. Commercial use is permitted.
+WOL Gateway is a self-hosted ESP32-C3 and LAN device management system for homes and small offices. Gateways connect to the server over Wi-Fi to discover and monitor LAN devices. The system provides Wake-on-LAN, an optional Windows shutdown service, multi-user access control, device sharing, signed firmware OTA, and an offline deployment configurator.
+
+The deployment configurator generates server configuration files locally in your browser. It does not upload hostnames, passwords, or keys.
+
+### Screenshots
+
+![Gateway management on desktop](screenshots/gateway-overview-desktop.png)
+
+![Device list on mobile](screenshots/device-list-mobile.png)
+
+### Features
+
+- ESP32-C3 Wi-Fi provisioning, gateway pairing, LAN discovery, and presence monitoring.
+- Multiple users, gateway ownership, access control, audit records, and device sharing.
+- Wake-on-LAN; the optional Windows service reports PC presence and supports shutdown.
+- Signed firmware verification, remote OTA, and rollback after failed updates.
+- SQLite for local development, MySQL for deployment, and MQTT for gateway-to-server communication.
+
+### Repository Layout
+
+| Path | Contents |
+| --- | --- |
+| `app/` | FastAPI application, templates, and static assets |
+| `firmware/` | ESP32-C3 firmware source and build configuration |
+| `windows-agent/native/` | Windows WOL shutdown service source |
+| `deploy/setup.html` | Offline deployment configurator |
+| `tools/package_release.py` | Creates a sanitized source archive |
+
+Prebuilt firmware, Windows executables, databases, production configuration, signing private keys, and internal operations records are excluded from the source archive. The OTA verification certificate is public material, not a signing key. Configure your own server address and trust certificate, and keep your signing private key secure.
+
+### Run Locally
+
+Requires Python 3.10+, Node.js for frontend tests, and an accessible MQTT broker. Configure the MQTT and database environment variables, then run:
+
+    py -m venv .venv
+    .venv\Scripts\python.exe -m pip install -r requirements.txt
+    $env:DEBUG = 'false'
+    $env:MQTT_HOST = '127.0.0.1'
+    $env:MQTT_PORT = '1883'
+    .venv\Scripts\python.exe run.py
+
+Open `http://127.0.0.1:8088/setup` on first run to set the administrator password. SQLite can be used for local development. Before deployment, configure a dedicated database account, MQTT ACLs, HTTPS, and non-debug mode. Never commit real configuration, databases, device binding secrets, MQTT passwords, TLS private keys, or firmware signing private keys.
+
+### Deployment Configurator
+
+Open `deploy/setup.html` in a browser. Enter the deployment domain, database, and MQTT settings to download server environment variables, MySQL credentials, and systemd examples. Inputs remain in the current page's memory; the configurator makes no network requests and does not log into or execute commands on a server. Review `deploy/README.md` for file permissions, TLS, reverse proxy, and firewall setup.
+
+The server address must also be configured in the firmware and Windows service source. The source archive replaces the original project server address with `YOUR_SERVER_HOST`. Replace that placeholder before building, and use your own trust certificate and OTA signing key.
+
+### Build and Test
+
+After installing development dependencies, run Python unit tests and Node tests:
+
+    .venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+    .venv\Scripts\python.exe -m unittest discover -s tests -v
+    node --test tests/portal_flow.test.cjs tests/gateway_pairing.test.cjs
+    .\firmware\build.ps1
+
+Build the Windows service with `windows-agent/native/Build.ps1`. Verify hardware flashing, service installation, shutdown, and remote deployment separately in their target environments.
+
+### License
+
+This project is licensed under GNU Affero General Public License v3.0 or later; see `LICENSE`. Attribution details are in `NOTICE`. Retain the original author and copyright notices. When distributing modified versions, add prominent notices to modified files or a change log shipped with the source, including what changed and when. Provide the complete corresponding source under AGPL terms. If you offer a modified version as a network service, provide its corresponding source to those users. Commercial use, modification, and redistribution are permitted subject to the source and license requirements.
+
+Check the licenses of dependencies, fonts, icons, certificates, and other third-party components separately. This project's license does not cover third-party materials.

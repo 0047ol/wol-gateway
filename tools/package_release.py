@@ -5,6 +5,7 @@ from io import BytesIO
 import json
 from pathlib import Path
 import re
+import struct
 from zipfile import ZIP_DEFLATED, ZipFile
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -33,6 +34,8 @@ def source_paths():
         ROOT / "tests" / "deployment_configurator.test.cjs",
         ROOT / "tools" / "package_release.py",
         ROOT / "tools" / "format_web.py",
+        ROOT / "screenshots" / "gateway-overview-desktop.png",
+        ROOT / "screenshots" / "device-list-mobile.png",
     ]
     for base, extensions in (
         (ROOT / "app", {".py", ".js", ".css", ".html", ".pem"}),
@@ -59,6 +62,8 @@ def source_paths():
 
 def public_bytes(path):
     raw = path.read_bytes()
+    if path.suffix.lower() == ".png":
+        return raw
     try:
         text = raw.decode("utf-8")
     except UnicodeDecodeError as error:
@@ -75,6 +80,13 @@ def validate(name, raw):
         part in normalized for part in ("/.local/", "/build/", "/dist/", "/.venv/")
     ):
         raise RuntimeError(f"Forbidden release artifact: {name}")
+    if normalized.endswith(".png"):
+        if len(raw) > 3_000_000 or len(raw) < 24 or raw[:8] != b"\x89PNG\r\n\x1a\n":
+            raise RuntimeError(f"Invalid or oversized screenshot: {name}")
+        width, height = struct.unpack(">II", raw[16:24])
+        if not (1 <= width <= 4096 and 1 <= height <= 4096):
+            raise RuntimeError(f"Invalid screenshot dimensions: {name}")
+        return
     data = raw.decode("utf-8", errors="replace")
     checks = (
         (r"189\.1\.243\.201", "production server address"),
