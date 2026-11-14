@@ -21,6 +21,7 @@ HOST_REPLACEMENTS = {
 def source_paths():
     paths = [
         ROOT / "README.md",
+        ROOT / "README.zh-CN.md",
         ROOT / "LICENSE",
         ROOT / "NOTICE",
         ROOT / "CONTRIBUTING.md",
@@ -33,9 +34,12 @@ def source_paths():
         ROOT / "deploy" / "setup.html",
         ROOT / "tests" / "deployment_configurator.test.cjs",
         ROOT / "tools" / "package_release.py",
+        ROOT / "tools" / "package_website_public.py",
         ROOT / "tools" / "format_web.py",
         ROOT / "screenshots" / "gateway-overview-desktop.png",
         ROOT / "screenshots" / "device-list-mobile.png",
+        ROOT / "screenshots" / "gateway-overview-desktop-en.png",
+        ROOT / "screenshots" / "device-list-mobile-en.png",
     ]
     for base, extensions in (
         (ROOT / "app", {".py", ".js", ".css", ".html", ".pem"}),
@@ -110,7 +114,13 @@ def main():
         raw = public_bytes(path)
         validate(name, raw)
         files[name] = raw
-    if not {"LICENSE", "README.md", "deploy/setup.html", "deploy/README.md"} <= files.keys():
+    if not {
+        "LICENSE",
+        "README.md",
+        "README.zh-CN.md",
+        "deploy/setup.html",
+        "deploy/README.md",
+    } <= files.keys():
         raise RuntimeError("Public release documentation is incomplete")
     manifest = {name: sha256(data).hexdigest() for name, data in sorted(files.items())}
     version_text = (ROOT / "app/templates/base.html").read_text(encoding="utf-8")
