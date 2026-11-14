@@ -1,4 +1,5 @@
 build/
+build-idf61/
 sdkconfig
 sdkconfig.old
 managed_components/

@@ -12,7 +12,7 @@
 #include "esp_timer.h"
 #include "esp_system.h"
 #include "mbedtls/pk.h"
-#include "mbedtls/sha256.h"
+#include "psa/crypto.h"
 #include "nvs.h"
 
 #define OTA_LAYOUT "c3-4m-ab-v1"
@@ -124,16 +124,18 @@ static bool partition_matches(const esp_partition_t *partition, int image_size, 
     if (!hex_bytes(expected, wanted, 32)) return false;
     unsigned char *buffer = malloc(2048);
     if (!buffer) return false;
-    mbedtls_sha256_context sha;
-    mbedtls_sha256_init(&sha);
-    bool ok = mbedtls_sha256_starts(&sha, 0) == 0;
+    psa_hash_operation_t sha = PSA_HASH_OPERATION_INIT;
+    size_t digest_length = 0;
+    bool ok = psa_hash_setup(&sha, PSA_ALG_SHA_256) == PSA_SUCCESS;
     for (int offset = 0; ok && offset < image_size; offset += 2048) {
         size_t count = image_size - offset < 2048 ? image_size - offset : 2048;
-        ok = esp_partition_read(partition, offset, buffer, count) == ESP_OK && mbedtls_sha256_update(&sha, buffer, count) == 0;
+        ok = esp_partition_read(partition, offset, buffer, count) == ESP_OK &&
+             psa_hash_update(&sha, buffer, count) == PSA_SUCCESS;
         vTaskDelay(1);
     }
-    if (ok) ok = mbedtls_sha256_finish(&sha, actual) == 0 && memcmp(actual, wanted, 32) == 0;
-    mbedtls_sha256_free(&sha);
+    if (ok) ok = psa_hash_finish(&sha, actual, sizeof(actual), &digest_length) == PSA_SUCCESS &&
+                 digest_length == sizeof(actual) && memcmp(actual, wanted, sizeof(actual)) == 0;
+    psa_hash_abort(&sha);
     free(buffer);
     return ok;
 }
@@ -343,7 +345,9 @@ esp_err_t wol_ota_start(const cJSON *payload)
     unsigned char signature_bytes[80], hash[32], identifier[16], bearer[32];
     size_t sig_length = strlen(signature) / 2;
     if (!*raw || strlen(raw) > 1024 || sig_length < 8 || sig_length > sizeof(signature_bytes) || !hex_bytes(signature, signature_bytes, sig_length) || !hex_bytes(task, identifier, 16) || !hex_bytes(token, bearer, 32)) goto fail;
-    if (mbedtls_sha256((const unsigned char *)raw, strlen(raw), hash, 0) != 0 ||
+    size_t digest_length = 0;
+    if (psa_hash_compute(PSA_ALG_SHA_256, (const unsigned char *)raw, strlen(raw), hash, sizeof(hash), &digest_length) != PSA_SUCCESS ||
+        digest_length != sizeof(hash) ||
         mbedtls_pk_parse_public_key(&key, (const unsigned char *)ota_public_start, strlen(ota_public_start) + 1) != 0 ||
         mbedtls_pk_verify(&key, MBEDTLS_MD_SHA256, hash, sizeof(hash), signature_bytes, sig_length) != 0) goto fail;
     manifest = cJSON_Parse(raw);

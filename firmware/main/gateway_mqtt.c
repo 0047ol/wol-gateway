@@ -13,7 +13,7 @@
 #include "esp_tls_errors.h"
 #include "esp_heap_caps.h"
 #include "freertos/queue.h"
-#include "mbedtls/sha256.h"
+#include "psa/crypto.h"
 #include "mqtt_client.h"
 
 static const char *TAG = "gateway_mqtt";
@@ -326,15 +326,15 @@ static cJSON *verify(const cJSON *envelope, const wol_settings_t *cfg)
     int64_t ts = strtoll(timestamp, &end, 10), now = time(NULL);
     if (!*timestamp || *end || now < 1704067200 || ts < now - 60 || ts > now + 60) goto invalid;
     unsigned char digest[32];
-    mbedtls_sha256_context ctx;
-    mbedtls_sha256_init(&ctx);
-    int err = mbedtls_sha256_starts(&ctx, 0);
-    if (!err) err = mbedtls_sha256_update(&ctx, (const unsigned char *)cfg->bind_key, strlen(cfg->bind_key));
-    if (!err) err = mbedtls_sha256_update(&ctx, (const unsigned char *)timestamp, strlen(timestamp));
-    if (!err) err = mbedtls_sha256_update(&ctx, (const unsigned char *)raw, strlen(raw));
-    if (!err) err = mbedtls_sha256_finish(&ctx, digest);
-    mbedtls_sha256_free(&ctx);
-    if (err) goto invalid;
+    psa_hash_operation_t ctx = PSA_HASH_OPERATION_INIT;
+    size_t digest_length = 0;
+    psa_status_t err = psa_hash_setup(&ctx, PSA_ALG_SHA_256);
+    if (err == PSA_SUCCESS) err = psa_hash_update(&ctx, (const unsigned char *)cfg->bind_key, strlen(cfg->bind_key));
+    if (err == PSA_SUCCESS) err = psa_hash_update(&ctx, (const unsigned char *)timestamp, strlen(timestamp));
+    if (err == PSA_SUCCESS) err = psa_hash_update(&ctx, (const unsigned char *)raw, strlen(raw));
+    if (err == PSA_SUCCESS) err = psa_hash_finish(&ctx, digest, sizeof(digest), &digest_length);
+    psa_hash_abort(&ctx);
+    if (err != PSA_SUCCESS || digest_length != sizeof(digest)) goto invalid;
     char expected[65];
     for (int i = 0; i < 32; i++) snprintf(expected + i * 2, 3, "%02x", digest[i]);
     unsigned diff = 0;

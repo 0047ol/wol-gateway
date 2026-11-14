@@ -51,10 +51,12 @@
 
 安装开发依赖后，可运行 Python 单元测试和 Node 测试：
 
+本机调试、构建及打包工具使用 Python 3.15.2，固件构建使用 ESP-IDF 6.1。首次执行 `C:\Python315\python.exe firmware/build.py --install-python-environment` 安装 IDF 约束的 Python 依赖；后续输出位于 `firmware/build-idf61/`，不复用旧版 IDF 缓存。路径配置与签名打包见 `firmware/README.md`。此次迁移不改变网站服务器的 Python 运行环境要求。
+
     .venv\Scripts\python.exe -m pip install -r requirements-dev.txt
     .venv\Scripts\python.exe -m unittest discover -s tests -v
     node --test tests/portal_flow.test.cjs tests/gateway_pairing.test.cjs
-    .\firmware\build.ps1
+    C:\Python315\python.exe firmware/build.py
 
 Windows 服务可使用 `windows-agent/native/Build.ps1` 构建。硬件刷写、服务安装、关机及远程部署需在目标环境单独验证。
 

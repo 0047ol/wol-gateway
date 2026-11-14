@@ -34,6 +34,7 @@ def source_paths():
         ROOT / "deploy" / "setup.html",
         ROOT / "tests" / "deployment_configurator.test.cjs",
         ROOT / "tools" / "package_release.py",
+        ROOT / "tools" / "package_firmware.py",
         ROOT / "tools" / "package_website_public.py",
         ROOT / "tools" / "format_web.py",
         ROOT / "screenshots" / "gateway-overview-desktop.png",
@@ -43,7 +44,7 @@ def source_paths():
     ]
     for base, extensions in (
         (ROOT / "app", {".py", ".js", ".css", ".html", ".pem"}),
-        (ROOT / "firmware" / "main", {".c", ".h", ".html", ".txt"}),
+        (ROOT / "firmware" / "main", {".c", ".h", ".html", ".txt", ".yml"}),
         (ROOT / "windows-agent" / "native", {".cs", ".ps1", ".config", ".pem"}),
     ):
         for path in base.rglob("*"):
@@ -55,6 +56,10 @@ def source_paths():
         ROOT / name
         for name in (
             "firmware/CMakeLists.txt",
+            "firmware/build.ps1",
+            "firmware/build.py",
+            "firmware/README.md",
+            "firmware/dependencies.lock",
             "firmware/partitions.csv",
             "firmware/sdkconfig.defaults",
             "firmware/.gitignore",

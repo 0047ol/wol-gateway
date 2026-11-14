@@ -51,10 +51,12 @@ Configure your own server domain in the firmware and Windows service source befo
 
 After installing development dependencies, run Python unit tests and Node tests:
 
+The local debugging, build, and packaging tools use Python 3.15.2; firmware builds use ESP-IDF 6.1. Run `C:\Python315\python.exe firmware/build.py --install-python-environment` once to install IDF's constrained Python dependencies. Builds use `firmware/build-idf61/`, isolated from earlier IDF builds; see `firmware/README.md` for overrides and signing. This toolchain migration does not change the website server's Python runtime requirements.
+
     .venv\Scripts\python.exe -m pip install -r requirements-dev.txt
     .venv\Scripts\python.exe -m unittest discover -s tests -v
     node --test tests/portal_flow.test.cjs tests/gateway_pairing.test.cjs
-    .\firmware\build.ps1
+    C:\Python315\python.exe firmware/build.py
 
 Build the Windows service with `windows-agent/native/Build.ps1`. Verify hardware flashing, service installation, shutdown, and remote deployment separately in their target environments.
 
