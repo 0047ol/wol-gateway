@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}用户已禁用{% endblock %}
+{% block content %}
+  <div class="card auth-card account-disabled">
+    <h1>用户已禁用</h1>
+    <p>当前用户已被禁用，请联系管理员重新启用</p>
+    <p class="subtle-note">重新启用后将自动恢复使用。</p>
+  </div>
+{% endblock %}
+{% block script %}
+  <script data-page-script>
+    WolPage.mount(({
+      fetch,
+      setInterval,
+      document,
+      window
+    }) => {
+      let busy = false;
+      async function check() {
+        if (busy || document.hidden) return;
+        busy = true;
+        try {
+          const response = await fetch('/api/account/status', {
+            cache: 'no-store'
+          });
+          const data = await response.json();
+          if (response.ok && data.enabled) window.location.replace({{ next_path|tojson }});
+        } catch (_) {} finally {
+          busy = false;
+        }
+      }
+      setInterval(check, 3000);
+      document.addEventListener('visibilitychange', check);
+      window.addEventListener('focus', check);
+      void check();
+    });
+  </script>
+{% endblock %}

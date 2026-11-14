@@ -1,0 +1,131 @@
+<section class="card{% if mode == 'invalid' %} inactive{% endif %}"
+         aria-label="设备控制">
+  {% if mode == "invalid" %}
+    <h1>分享不可用</h1>
+    <p class="subtitle" style="margin-bottom:0">请联系分享者重新启用或生成分享链接。</p>
+  {% elif mode == "login" %}
+    <header class="card-header">
+      <span>访客登录</span>
+    </header>
+    <div class="login-art">
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="5" y="10" width="14" height="11" rx="3" />
+        <path d="M8 10V7a4 4 0 0 1 8 0v3M12 15v2" />
+      </svg>
+    </div>
+    <h1 style="text-align:center">登录设备控制页</h1>
+    <p class="subtitle">使用分享者提供的账号和密码</p>
+    <form id="login-form">
+      <label for="username">账号</label><input id="username"
+       name="username"
+       autocomplete="username"
+       placeholder="输入分享账号"
+       required
+       maxlength="80">
+      <label for="password">密码</label><input id="password"
+       name="password"
+       type="password"
+       autocomplete="current-password"
+       placeholder="输入分享密码"
+       required
+       maxlength="1024">
+      <p id="login-message" class="form-feedback" role="alert" hidden></p>
+      <button class="action login-submit" type="submit">登录</button>
+    </form>
+  {% else %}
+    <header class="card-header control-header">
+      <div class="device-info">
+        <h1 id="device-name" data-no-i18n>{{ state.name }}</h1>
+        <span id="device-state"
+              class="badge"
+              data-state="{{ state.status }}"
+              role="status">{{ state.status_label }}</span>
+      </div>
+      <div class="account">
+        <button id="account-toggle"
+                class="icon-button"
+                type="button"
+                aria-label="账号菜单"
+                aria-haspopup="menu"
+                aria-controls="account-menu"
+                aria-expanded="false">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="8" r="3.5" />
+            <path d="M5 21v-2a7 7 0 0 1 14 0v2" />
+          </svg>
+        </button>
+        <div id="account-menu"
+             class="account-menu"
+             role="menu"
+             aria-labelledby="account-toggle"
+             hidden>
+          {% if identity == "admin" %}
+            <button id="return-admin" type="button" role="menuitem">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="m10 5-7 7 7 7M3 12h18" />
+              </svg><span>返回后台</span>
+            </button>
+          {% else %}
+            <button id="logout" type="button" role="menuitem">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M9 5H5v14h4M13 8l4 4-4 4M8 12h12" />
+              </svg><span>退出登录</span>
+            </button>
+          {% endif %}
+        </div>
+      </div>
+    </header>
+    <svg id="computer"
+         class="computer"
+         data-state="{{ state.status }}"
+         viewBox="0 0 280 196"
+         aria-hidden="true">
+      <defs>
+      <linearGradient id="wallpaper" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#7396ff" /><stop offset="1" stop-color="#3864ec" /></linearGradient>
+      <clipPath id="screen-clip"><rect x="30" y="20" width="220" height="128" rx="7" /></clipPath>
+      </defs>
+      <ellipse cx="140" cy="186" rx="90" ry="5" fill="currentColor" opacity=".035" />
+      <path class="foot" d="M125 157h30l4 18h15a5 5 0 0 1 5 5H101a5 5 0 0 1 5-5h15z" />
+      <rect class="body" x="19" y="9" width="242" height="153" rx="14" />
+      <rect class="screen" x="30" y="20" width="220" height="128" rx="7" />
+      <g class="wallpaper" clip-path="url(#screen-clip)">
+      <rect x="30" y="20" width="220" height="128" fill="url(#wallpaper)" />
+      <circle cx="233" cy="17" r="98" fill="#fff" opacity=".12" />
+      <circle cx="53" cy="161" r="113" fill="#d6e2ff" opacity=".16" />
+      <path d="M30 126c58-83 125-54 220-104v126H30z" fill="#375bce" opacity=".25" />
+      <rect x="119" y="66" width="19" height="17" rx="2" fill="#fff" opacity=".9" /><rect x="142" y="66" width="19" height="17" rx="2" fill="#fff" opacity=".9" />
+      <rect x="119" y="87" width="19" height="17" rx="2" fill="#fff" opacity=".9" /><rect x="142" y="87" width="19" height="17" rx="2" fill="#fff" opacity=".9" />
+      </g>
+      <text class="question" x="140" y="94">?</text>
+      <g class="screen-progress">
+      <g class="loading-dots">
+      <circle cx="140" cy="63" r="1.7" style="--dot:0" />
+      <circle cx="147.1" cy="65.9" r="1.7" style="--dot:1" />
+      <circle cx="150" cy="73" r="1.7" style="--dot:2" />
+      <circle cx="147.1" cy="80.1" r="1.7" style="--dot:3" />
+      <circle cx="140" cy="83" r="1.7" style="--dot:4" />
+      <circle cx="132.9" cy="80.1" r="1.7" style="--dot:5" />
+      <circle cx="130" cy="73" r="1.7" style="--dot:6" />
+      <circle cx="132.9" cy="65.9" r="1.7" style="--dot:7" />
+      </g>
+      <text id="screen-status" class="screen-status" x="140" y="108" aria-live="polite"></text>
+      </g>
+      <circle class="power-light" cx="140" cy="155" r="2" />
+    </svg>
+    <p id="device-message" class="message hint">{{ state.reason or ('电脑已连接，可以远程关机。' if state.can_shutdown else '电脑当前离线，可以发送开机唤醒。' if state.can_wake else '暂时无法确认设备状态，请稍后刷新。') }}</p>
+    <div class="actions">
+      <button id="power"
+              class="action power-button"
+              type="button"
+              data-tone="{% if state.can_shutdown %}shutdown{% else %}wake{% endif %}"
+              data-action="{% if state.can_shutdown %}shutdown{% elif state.can_wake %}wake{% endif %}"
+              aria-label="{% if state.can_shutdown %}关机{% elif state.can_wake %}开机{% else %}状态未知{% endif %}"
+              aria-describedby="device-message"
+              {% if not (state.can_shutdown or state.can_wake) %}disabled{% endif %}>
+        <svg class="icon power-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 3v9M6 5.5a9 9 0 1 0 12 0" />
+        </svg>
+      </button>
+    </div>
+  {% endif %}
+</section>

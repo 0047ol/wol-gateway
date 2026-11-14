@@ -1,0 +1,7 @@
+-r requirements.txt
+httpx>=0.27,<1
+
+black==26.10.1
+djlint==1.47.0
+jsbeautifier==2.0.3
+cssbeautifier==2.0.3

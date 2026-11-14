@@ -1,0 +1,2117 @@
+{% from "_gateway_info.html" import gateway_info %}
+{% extends "base.html" %}
+{% from "_controls.html" import action_icon, status_select %}
+{% block title %}子设备管理{% endblock %}
+{% block content %}
+  <div class="page-heading">
+    <div class="page-title-wrap">
+      <div class="page-title">
+        <a class="back-icon" href="/" aria-label="返回网关" title="返回网关">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M19 12H5m7 7-7-7 7-7" />
+          </svg>
+        </a>
+        <h1 data-no-i18n>{{ gw.name or (gw.mac|fmt_mac) }}</h1>
+        <span id="device-gateway-status"
+              class="badge {{ gw|gateway_state }}"
+              title="{{ gw|gateway_notice }}">{{ gateway_labels[gw|gateway_state] }}</span>
+      </div>
+      <p class="page-description"
+         title="{{ gateway_info(gw) }}"><span data-no-i18n>{{ (gw.mac or '')|fmt_mac }}</span></p>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="section-heading list-heading">
+      <h2>设备列表 <span class="count-pill"
+       id="device-count"
+       data-total="{{ all_total }}"
+       title="{{ '在线 / 全部；部分设备状态未知' if unknown_total else '在线 / 全部' }}">{{ online_total }}/{{ all_total }}</span></h2>
+      <form id="device-search-form"
+            class="search-form list-search-form"
+            data-has-data="{{ 'true' if all_total else 'false' }}"
+            onsubmit="event.preventDefault(); refreshDeviceList(1, false)"
+            {% if not all_total %}hidden{% endif %}><input id="device-search"
+       name="q"
+       value="{{ q }}"
+       placeholder="搜索名称 / MAC / IP"
+       aria-label="搜索名称 / MAC / IP"
+       {% if not all_total %}disabled{% endif %} /><span class="search-field-icon" aria-hidden="true">{{ action_icon("搜索") }}</span></form>
+    </div>
+    <div class="card-toolbar list-toolbar">
+      <div class="toolbar-bulk">
+        <div class="toolbar-action-group" data-toolbar-default>
+          {{ status_select('device-status-filter', status_filter, device=true) }}
+          <button type="button"
+                  onclick="openManualAdd()"
+                  id="device-add-trigger"
+                  data-default-action
+                  {% if not gateway_view.can_manage %}disabled{% endif %}
+                  class="outline icon-button"
+                  data-icon-label="添加"
+                  aria-label="添加"
+                  title="添加">{{ action_icon("添加") }}</button><button type="button"
+        class="gray icon-button"
+        id="device-scan-trigger"
+        data-page-prefetch="/gateway/{{ gw.public_id }}/scan"
+        data-default-action
+        {% if not gateway_view.can_manage %}disabled{% endif %}
+        onclick="openScanDialog()"
+        data-icon-label="扫描"
+        aria-label="扫描"
+        title="扫描">{{ action_icon("扫描") }}</button>
+        </div>
+        <div class="toolbar-action-group" data-toolbar-selected hidden inert>
+          <button id="power-selected-devices"
+                  onclick="powerSelected()"
+                  class="gray icon-button"
+                  disabled
+                  hidden
+                  data-icon-label="开机"
+                  aria-label="开机"
+                  title="开机">{{ action_icon("开机") }}</button>
+          <button id="unlink-selected-devices"
+                  type="button"
+                  class="gray icon-button"
+                  onclick="unlinkSelectedServices()"
+                  disabled
+                  hidden
+                  data-icon-label="解绑WOL关机服务"
+                  aria-label="批量解绑WOL关机服务"
+                  title="批量解绑WOL关机服务">{{ action_icon("解绑WOL关机服务") }}</button>
+          <button id="share-selected-devices"
+                  type="button"
+                  class="gray icon-button"
+                  onclick="shareSelectedDevices()"
+                  disabled
+                  hidden
+                  data-icon-label="分享"
+                  aria-label="批量生成分享"
+                  title="批量生成分享">{{ action_icon("分享") }}</button>
+          <button id="delete-selected-devices"
+                  onclick="deleteSelected()"
+                  class="danger icon-button"
+                  disabled
+                  hidden
+                  data-icon-label="删除"
+                  aria-label="删除"
+                  title="删除">{{ action_icon("删除") }}</button>
+        </div>
+      </div>
+      <span id="device-selection-count"
+            class="selection-count"
+            role="status"
+            aria-live="polite"
+            hidden></span>
+    </div>
+    <div class="table-scroll" id="device-table-scroll">
+      <table id="device-table"
+             class="management-list"
+             aria-busy="{{ 'true' if deferred else 'false' }}"
+             data-sort="{{ sort }}"
+             data-direction="{{ direction }}">
+        <thead>
+          <tr>
+            <th>
+              <input id="select-all-devices"
+                     type="checkbox"
+                     onchange="selectAllDevices(this.checked)" />
+            </th>
+            <th data-sort-key="id">ID</th>
+            <th data-sort-key="name">名称</th>
+            <th data-sort-key="ip">IP</th>
+            <th data-sort-key="mac">MAC</th>
+            <th data-sort-key="last_report">最后上报</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody id="devices-tbody">
+          {% for r in rows %}
+            <tr>
+              <td>
+                <input class="dev-check"
+                       type="checkbox"
+                       value="{{ r.id }}"
+                       onchange="updateDeviceSelection()" />
+              </td>
+              <td>{{ r.display_id }}</td>
+              <td>
+                <div class="device-identity">
+                  <span class="device-kind"
+                        data-kind="{{ r.icon_kind }}"
+                        data-solid="{{ 'true' if r.icon_solid else 'false' }}"
+                        data-status="{{ r.status }}"
+                        title="{{ r.icon_brand ~ ' · ' if r.icon_brand else '' }}{{ r.icon_label }} · {{ {'online':'在线','offline':'离线','unknown':'未知','unseen':'未检测到'}[r.status] }}"
+                        aria-label="{{ r.icon_brand ~ ' · ' if r.icon_brand else '' }}{{ r.icon_label }} · {{ {'online':'在线','offline':'离线','unknown':'未知','unseen':'未检测到'}[r.status] }}">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="{{ r.icon_path }}" />
+                    </svg></span><span data-no-i18n id="device-name-{{ r.id }}">{{ r.name }}</span><span class="badge {{ r.status }}"
+      id="dev-status-{{ r.id }}"
+      data-power-status="{{ r.power_status or r.status }}"
+      title="{{ r.status_reason or ('未检测到' if r.status == 'unseen' else '') }}">{{ {'online':'在线','offline':'离线','unknown':'未知','unseen':'未知'}[r.status] }}</span>
+                  </div>
+                </td>
+                <td class="mono">{{ r.ip or '-' }}</td>
+                <td class="mono">{{ r.mac|fmt_mac }}</td>
+                <td class="mono" id="dev-report-{{ r.id }}">{{ r.last_report or '-' }}</td>
+                <td class="row-actions">
+                  <button type="button"
+                          class="gray icon-button"
+                          onclick="editDevice('{{ r.id }}')"
+                          data-device-mutation
+                          {% if not gateway_view.can_manage %}disabled{% endif %}
+                          data-icon-label="编辑"
+                          aria-label="编辑"
+                          title="{{ gateway_view.action_error if not gateway_view.can_manage else '编辑' }}">{{ action_icon("编辑") }}</button>
+                  {% set power_status = r.power_status or r.status %}
+                  {% set initial_power_action = '开机' if gateway_view.online and power_status == 'offline' else '关联WOL关机服务' if r.service_detected and not r.pc_service_bound else '关机' if power_status == 'online' else '开机' %}
+                  <button type="button"
+                          class="{{ '' if initial_power_action == '关机' else 'gray' }} icon-button"
+                          id="device-power-{{ r.id }}"
+                          data-icon-label="{{ initial_power_action if r.power_capable else '电源操作' }}"
+                          aria-label="{{ initial_power_action if r.power_capable else '电源操作' }}"
+                          {% if not r.power_capable or not gateway_view.can_manage or power_status == 'unknown' or (not gateway_view.online and not (r.status_source == 'pc' and power_status == 'online')) %}disabled title="{{ '仅电脑和笔记本支持开关机' if not r.power_capable else '网关离线，设备状态未知，无法操作电源' }}"{% else %}title="{{ initial_power_action }}"{% endif %}
+                          onclick="toggleDevicePower({{ r.id }})">{{ action_icon(initial_power_action if r.power_capable else '电源操作') }}</button>
+                  <button type="button"
+                          class="gray icon-button"
+                          id="device-share-{{ r.id }}"
+                          onclick="openDeviceShare('{{ r.id }}')"
+                          {% if not r.share_exists and (not r.power_capable or not gateway_view.can_manage or not gateway_view.online) %}disabled{% endif %}
+                          data-icon-label="分享"
+                          aria-label="分享"
+                          title="{{ '仅电脑和笔记本支持设备分享' if not r.power_capable and not r.share_exists else gateway_view.action_error if (not gateway_view.can_manage or not gateway_view.online) and not r.share_exists else '分享' }}">{{ action_icon("分享") }}</button>
+                  <button type="button"
+                          class="danger icon-button"
+                          onclick="deleteDevice('{{ r.id }}')"
+                          data-device-mutation
+                          {% if not gateway_view.can_manage %}disabled{% endif %}
+                          data-icon-label="删除"
+                          aria-label="删除"
+                          title="{{ gateway_view.action_error if not gateway_view.can_manage else '删除' }}">{{ action_icon("删除") }}</button>
+                </td>
+
+              </tr>
+          {% else %}
+            <tr>
+              <td colspan="7"
+                  class="empty-state">{% if not deferred %}暂无设备，可手动添加或扫描局域网{% endif %}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr id="device-list-loading" {% if not deferred %}hidden{% endif %}>
+            <td colspan="7" class="scan-loading-cell"><span class="scan-loading-status" role="status" aria-live="polite"><i class="scan-loading-spinner" aria-hidden="true"></i><span>正在读取设备…</span></span></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+
+    <div class="scroll-sentinel"
+         id="devices-sentinel"
+         data-page="{{ 0 if deferred else page }}"
+         data-page-size="{{ page_size }}"
+         data-total-pages="{{ total_pages }}"
+         {% if deferred or page >= total_pages %}hidden{% endif %}>继续下滑加载</div>
+  </div>
+  <dialog id="device-editor"
+          class="ui-dialog"
+          aria-labelledby="device-edit-title">
+    <form onsubmit="event.preventDefault(); saveDeviceName()">
+      <div class="dialog-heading">
+        <span class="dialog-symbol" aria-hidden="true">{{ action_icon("编辑") }}</span>
+        <h2 id="device-edit-title">编辑设备</h2>
+        <button type="button"
+                class="share-icon-button device-editor-close"
+                data-no-icon
+                aria-label="关闭"
+                title="关闭"
+                hidden
+                onclick="closeDialog('device-editor')">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="m6 6 12 12M6 18 18 6" />
+          </svg>
+        </button>
+      </div>
+      <div class="form-row">
+        <label for="device-new-name">设备名称</label><input id="device-new-name"
+       maxlength="16"
+       title="名称最多 16 个字符"
+       required />
+      </div>
+      <div class="form-row">
+        <label for="device-type">设备类型</label>
+        <select id="device-type" title="识别有误时可手动修正，选择自动识别可恢复名称识别。">
+          <option value=""
+                  data-icon-path="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5M9 12l2 2 4-4">自动识别</option>
+          <option value="desktop" data-icon-path="{{ device_type_icons.desktop[1] }}">电脑</option>
+          <option value="laptop" data-icon-path="{{ device_type_icons.laptop[1] }}">笔记本</option>
+          <option value="phone" data-icon-path="{{ device_type_icons.phone[1] }}">手机</option>
+          <option value="tablet" data-icon-path="{{ device_type_icons.tablet[1] }}">平板</option>
+          <option value="watch" data-icon-path="{{ device_type_icons.watch[1] }}">手表</option>
+          <option value="printer" data-icon-path="{{ device_type_icons.printer[1] }}">打印机</option>
+          <option value="router" data-icon-path="{{ device_type_icons.router[1] }}">路由器</option>
+          <option value="lan" data-icon-path="{{ device_type_icons.lan[1] }}">其他局域网设备</option>
+        </select>
+      </div>
+      <div class="dialog-actions device-editor-actions">
+        <button type="button"
+                id="device-editor-unlink"
+                class="danger-outline dialog-footer-start"
+                hidden
+                data-no-icon
+                onclick="unlinkWindowsService(editingDeviceId)">解绑</button>
+        <div class="dialog-footer-end">
+          <button type="button"
+                  class="gray"
+                  id="device-editor-cancel"
+                  onclick="closeDialog('device-editor')">取消</button>
+          <button type="submit" id="device-editor-save">保存</button>
+        </div>
+      </div>
+    </form>
+  </dialog>
+  <dialog id="manual-device-dialog"
+          class="ui-dialog"
+          aria-labelledby="manual-add-title">
+    <form id="manual-device-form"
+          onsubmit="event.preventDefault(); saveManualDevices()">
+      <div class="dialog-heading">
+        <span class="dialog-symbol" aria-hidden="true">{{ action_icon("添加", false) }}</span>
+        <h2 id="manual-add-title">添加局域网设备</h2>
+      </div>
+      <fieldset id="manual-bulk" class="manual-fields" hidden disabled>
+        <div class="form-row">
+          <label for="manual-lines">每行一台：名称,MAC,IP</label><textarea id="manual-lines"
+          required
+          maxlength="65536"
+          placeholder="客厅电脑,AA:BB:CC:DD:EE:FF,192.168.1.20"></textarea>
+        </div>
+        <p class="subtle-note">名称和 IP 可留空，逗号需保留。每个网关最多 64 台设备。</p>
+      </fieldset>
+      <div class="dialog-actions">
+        <button type="button"
+                class="gray"
+                onclick="closeDialog('manual-device-dialog')">取消</button><button type="submit" id="manual-add-submit" data-no-icon>添加</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="power-dialog"
+          class="ui-dialog"
+          aria-labelledby="power-title"
+          data-gateway-id="{{ gw.public_id }}">
+    <form onsubmit="event.preventDefault()">
+      <div class="dialog-heading">
+        <span id="power-symbol"
+              class="dialog-symbol"
+              aria-hidden="true">{{ action_icon("关机", false) }}</span>
+        <h2 id="power-title">确认关机</h2>
+      </div>
+      <p id="power-state" role="status" aria-live="polite"></p>
+      <div class="dialog-actions">
+        <button type="button"
+                id="power-close"
+                class="gray"
+                data-no-icon
+                onclick="closePowerManager()">取消</button>
+        <button type="button"
+                id="power-download"
+                data-no-icon
+                hidden
+                onclick="downloadPowerService()">下载安装服务</button>
+        <button type="button"
+                id="power-link"
+                data-no-icon
+                hidden
+                onclick="linkPowerService()">确认关联</button>
+        <button type="button"
+                id="power-shutdown"
+                class="danger"
+                data-no-icon
+                disabled
+                onclick="powerAction('shutdown')">关机</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="device-share-dialog"
+          class="ui-dialog share-management-dialog"
+          aria-labelledby="device-share-title">
+    <form id="device-share-form" novalidate>
+      <header class="share-dialog-header">
+        <span class="dialog-symbol" aria-hidden="true">{{ action_icon("分享", false) }}</span>
+        <div class="share-dialog-heading">
+          <div class="share-dialog-title">
+            <h2 id="device-share-title">分享设备</h2>
+            <span id="share-enabled-state" class="share-state" role="status" hidden></span>
+          </div>
+        </div>
+        <button id="share-manager-close"
+                type="button"
+                class="share-icon-button"
+                data-no-icon
+                aria-label="关闭"
+                title="关闭">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="m6 6 12 12M6 18 18 6" />
+          </svg>
+        </button>
+      </header>
+      <div class="share-dialog-body">
+        <p id="device-share-loading" role="status">正在读取分享设置…</p>
+        <div id="device-share-content" hidden>
+          <p class="share-intro">长期有效，可随时停用。访客仅能控制这台设备。</p>
+          <div class="share-credentials">
+            <div id="share-device-info" class="share-detail-row share-device-info">
+              <div class="share-info-name">
+                <span class="share-field-label">名称</span>
+                <span id="share-info-name" class="share-detail-value" data-no-i18n></span>
+              </div>
+              <div>
+                <span class="share-field-label" data-no-i18n>MAC</span>
+                <code id="share-info-mac" class="share-detail-value" data-no-i18n></code>
+              </div>
+              <div>
+                <span class="share-field-label" data-no-i18n>IP</span>
+                <code id="share-info-ip" class="share-detail-value" data-no-i18n></code>
+              </div>
+            </div>
+            <div id="device-share-credentials" hidden>
+              <div class="share-detail-row">
+                <div class="share-detail-text">
+                  <span id="share-link-label" class="share-field-label">分享链接</span>
+                  <a id="share-link"
+                     class="share-detail-value share-link"
+                     data-no-i18n
+                     target="_blank"
+                     rel="noopener noreferrer"
+                     aria-labelledby="share-link-label"></a>
+                </div>
+                <button type="button"
+                        class="share-icon-button"
+                        data-no-icon
+                        data-share-copy="link"
+                        aria-label="复制链接"
+                        title="复制链接">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <rect x="8" y="8" width="12" height="13" rx="2" />
+                    <path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" />
+                  </svg>
+                </button>
+              </div>
+              <div class="share-detail-row">
+                <div class="share-detail-text">
+                  <span id="share-username-label" class="share-field-label">账号</span>
+                  <code id="share-username"
+                        class="share-detail-value"
+                        data-no-i18n
+                        aria-labelledby="share-username-label"></code>
+                </div>
+                <button type="button"
+                        class="share-icon-button"
+                        data-no-icon
+                        data-share-copy="username"
+                        aria-label="复制账号"
+                        title="复制账号">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <rect x="8" y="8" width="12" height="13" rx="2" />
+                    <path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" />
+                  </svg>
+                </button>
+              </div>
+              <div id="share-password-row" class="share-detail-row share-secret">
+                <div class="share-detail-text">
+                  <span id="share-password-label" class="share-field-label">密码</span>
+                  <code id="share-password"
+                        class="share-detail-value"
+                        data-no-i18n
+                        aria-labelledby="share-password-label"></code>
+                </div>
+                <button id="share-password-reset"
+                        type="button"
+                        class="share-icon-button danger"
+                        data-no-icon
+                        aria-label="随机重置密码"
+                        title="随机重置密码">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M20 7v5h-5M4 17v-5h5M5 8a8 8 0 0 1 13-3l2 2M4 17l2 2a8 8 0 0 0 13-3" />
+                  </svg>
+                </button>
+                <button type="button"
+                        class="share-icon-button"
+                        data-no-icon
+                        data-share-copy="password"
+                        aria-label="复制密码"
+                        title="复制密码">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <rect x="8" y="8" width="12" height="13" rx="2" />
+                    <path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" />
+                  </svg>
+                </button>
+              </div>
+              <p id="share-password-note" class="share-password-note" hidden>旧密码无法查看，随机重置后即可显示。</p>
+            </div>
+          </div>
+          <fieldset id="device-share-permissions" class="share-permissions">
+            <legend>电源权限</legend>
+            <div class="share-permission-options">
+              <label>
+                <input id="share-can-wake" type="checkbox" checked><span>允许开机</span>
+              </label>
+              <label>
+                <input id="share-can-shutdown" type="checkbox" checked><span>允许关机</span>
+              </label>
+            </div>
+          </fieldset>
+        </div>
+        <p id="share-manager-error"
+           class="share-manager-error"
+           role="alert"
+           hidden></p>
+      </div>
+      <div id="share-dialog-footer" class="share-dialog-footer" hidden>
+        <button id="share-delete"
+                type="button"
+                class="share-delete-action"
+                data-no-icon
+                hidden>删除</button>
+        <div class="share-primary-action">
+          <button id="share-manager-save" type="submit" data-no-icon hidden>生成分享</button>
+        </div>
+      </div>
+    </form>
+  </dialog>
+  <dialog id="batch-share-options"
+          class="ui-dialog share-management-dialog"
+          aria-labelledby="batch-share-options-title">
+    <form id="batch-share-options-form">
+      <header class="share-dialog-header">
+        <span class="dialog-symbol" aria-hidden="true">{{ action_icon("分享") }}</span>
+        <div class="share-dialog-heading">
+          <h2 id="batch-share-options-title">批量生成分享</h2>
+        </div>
+        <button type="button"
+                class="share-icon-button"
+                data-no-icon
+                aria-label="关闭"
+                title="关闭"
+                onclick="closeDialog('batch-share-options')">
+          {{ action_icon("关闭", false) }}
+        </button>
+      </header>
+      <div class="share-dialog-body">
+        <p class="share-intro">所选设备使用相同账号密码和电源权限。</p>
+        <ul id="batch-share-targets" class="confirmation-targets">
+        </ul>
+        <fieldset class="share-permissions">
+          <legend>电源权限</legend>
+          <div class="share-permission-options">
+            <label>
+              <input id="batch-share-can-wake" type="checkbox" checked><span>允许开机</span>
+            </label>
+            <label>
+              <input id="batch-share-can-shutdown" type="checkbox" checked><span>允许关机</span>
+            </label>
+          </div>
+        </fieldset>
+        <p id="batch-share-permission-error"
+           class="field-note"
+           role="status"
+           hidden>请至少选择一项电源权限</p>
+      </div>
+      <div class="share-dialog-footer">
+        <div class="share-primary-action">
+          <button id="batch-share-confirm"
+                  type="submit"
+                  data-permission="device_share">生成分享</button>
+        </div>
+      </div>
+    </form>
+  </dialog>
+  <dialog id="batch-share-dialog"
+          class="ui-dialog batch-share-dialog"
+          aria-labelledby="batch-share-title">
+    <form onsubmit="event.preventDefault()">
+      <div class="dialog-heading">
+        <span class="dialog-symbol" aria-hidden="true">{{ action_icon("分享", false) }}</span>
+        <h2 id="batch-share-title">分享已生成</h2>
+      </div>
+      <div class="batch-share-body">
+        <p class="subtle-note">以下设备共用本次生成的账号密码，后续可分别管理。</p>
+        <div class="batch-share-credentials">
+          <div><span>账号</span><code id="batch-share-username" data-no-i18n></code></div>
+          <div><span>密码</span><code id="batch-share-password" data-no-i18n></code></div>
+        </div>
+        <div id="batch-share-links" class="batch-share-links"></div>
+      </div>
+      <div class="dialog-actions">
+        <button type="button"
+                class="gray"
+                onclick="closeDialog('batch-share-dialog')">关闭</button><button type="button" id="batch-share-copy" data-no-icon>复制分享信息</button>
+      </div>
+    </form>
+  </dialog>
+{% endblock %}
+
+{% block script %}
+  <script data-page-script src="/static/power.js?v=20261110-02"></script>
+  <script data-page-script>
+    /* page-scope:start */
+    WolPage.mount(({
+      window,
+      globalThis,
+      document,
+      fetch,
+      history,
+      setInterval,
+      clearInterval,
+      setTimeout,
+      clearTimeout,
+      IntersectionObserver,
+      showToast,
+      postForm,
+      uiConfirm,
+      uiAlert,
+      expose
+    }) => {
+
+      window.deviceGatewayOnline = {{ gateway_view.online|tojson }};
+      window.deviceGatewayDeleting = {{ gateway_view.delete_pending|tojson }};
+      window.deviceGatewayCanManage = {{ gateway_view.can_manage|tojson }};
+      window.deviceGatewayActionError = {{ gateway_view.action_error|tojson }};
+      window.deviceRows = {{ rows|tojson }};
+      window.deviceGatewayId = {{ gw.public_id|tojson }};
+      window.WolSync.remember('gateway:' + window.deviceGatewayId, {{ gw.edit_revision|tojson }});
+      for (const row of window.deviceRows) window.WolSync.remember('device:' + row.id, row.revision);
+      window.getDeviceRow = id => window.deviceRows.find(item => String(item.id) === String(id));
+      window.cacheDeviceRow = device => {
+        window.WolSync.remember('device:' + device.id, device.revision);
+        const index = window.deviceRows.findIndex(item => String(item.id) === String(device.id));
+        if (index < 0) window.deviceRows.push(device);
+        else window.deviceRows[index] = {
+          ...window.deviceRows[index],
+          ...device
+        };
+      };
+      let lastGatewayConnectionOnline = window.deviceGatewayOnline;
+
+      function deviceMutationAllowed(scan = false, allowOffline = false) {
+        const message = window.deviceGatewayActionError || (window.deviceGatewayDeleting ? '网关正在等待删除，请先撤销删除' : window.deviceGatewayCanManage === false ? '网关状态异常，仅可查看设备和日志' : !allowOffline && window.deviceGatewayOnline === false ? (scan ? '网关离线，无法扫描' : '网关离线，无法操作设备') : '');
+        if (message) showToast(message, {
+          error: true
+        });
+        return !message;
+      }
+
+      function updateDeviceMutationControls() {
+        const blocked = window.deviceGatewayDeleting || window.deviceGatewayCanManage === false;
+        document.querySelectorAll('[data-device-mutation]').forEach(button => {
+          button.disabled = blocked;
+          button.title = t(window.deviceGatewayActionError || (window.deviceGatewayDeleting ? '网关正在等待删除，请先撤销删除' : button.dataset.iconLabel || '编辑'));
+        });
+        for (const id of ['device-add-trigger', 'device-scan-trigger']) document.getElementById(id).disabled = blocked;
+        document.getElementById('delete-selected-devices').disabled = blocked || !getSelected();
+        window.setAnimatedHidden?.(document.getElementById('delete-selected-devices'), blocked || !getSelected());
+      }
+
+      function managePower(id) {
+        window.openPowerManager(id);
+      }
+
+      function openScanDialog() {
+        if (!deviceMutationAllowed(true)) return;
+        return window.WolPage.navigate('/gateway/{{ gw.public_id }}/scan');
+      }
+      let manualBulk = false;
+      let manualSaving = false;
+
+      function setManualMode(bulk) {
+        if (manualSaving) return;
+        manualBulk = bulk;
+        const single = document.getElementById('manual-single');
+        const bulkFields = document.getElementById('manual-bulk');
+        if (single) single.hidden = single.disabled = bulk;
+        if (bulkFields) bulkFields.hidden = bulkFields.disabled = !bulk;
+        document.getElementById('manual-single-tab')?.setAttribute('aria-pressed', String(!bulk));
+        document.getElementById('manual-bulk-tab')?.setAttribute('aria-pressed', String(bulk));
+      }
+
+      function openManualAdd() {
+        if (manualSaving) return;
+        if (!deviceMutationAllowed(false, true)) return;
+        document.getElementById('manual-device-form').reset();
+        setManualMode(true);
+        openDialog('manual-device-dialog');
+      }
+      document.addEventListener('DOMContentLoaded', () => setTimeout(() => {
+        const url = new URL(location.href);
+        if (url.searchParams.get('action') !== 'add') return;
+        url.searchParams.delete('action');
+        history.replaceState({}, '', url);
+        openManualAdd();
+      }, 0));
+      async function saveManualDevices() {
+        if (manualSaving) return;
+        if (!deviceMutationAllowed(false, true)) return;
+        const submit = document.getElementById('manual-add-submit');
+        const bulk = manualBulk;
+        const fields = manualBulk ? [] : ['manual-name', 'manual-mac', 'manual-ip'].map(id => document.getElementById(id).value.trim());
+        if (!bulk && fields.some(value => /[,，\r\n]/.test(value))) {
+          closeDialog('manual-device-dialog');
+          showToast('输入内容不能包含逗号或换行', {
+            error: true
+          });
+          return;
+        }
+        const lines = bulk ? document.getElementById('manual-lines').value : fields.join(',');
+        manualSaving = true;
+        submit.disabled = true;
+        for (const id of ['manual-single', 'manual-bulk', 'manual-single-tab', 'manual-bulk-tab']) {
+          const control = document.getElementById(id);
+          if (control) control.disabled = true;
+        }
+        try {
+          const response = await fetch('/gateway/{{ gw.public_id }}/devices/batch_add', {
+            method: 'POST',
+            body: new URLSearchParams({
+              lines
+            })
+          });
+          const result = await response.json();
+          if (!response.ok || !result.ok) throw new Error(result.msg || t('添加失败'));
+          const failures = result.errors || [];
+          const summary = `${t('已添加设备：')}${result.added}；${t('未添加：')}${failures.length}`;
+          closeDialog('manual-device-dialog');
+          if (failures.length) {
+            showToast(summary + '\n' + failures.map(item => `${item.line} — ${t(item.reason)}`).join('\n'), {
+              error: true,
+              duration: 8000
+            });
+          } else {
+            showToast(summary + '\n' + t(result.pushed_to_gateway ? '设备列表已同步到网关' : '设备列表已保存，网关上线后同步'), {
+              success: true
+            });
+          }
+          if (result.added) await refreshDeviceList(1, false);
+        } catch (error) {
+          showToast(error.message || '添加失败', {
+            error: true,
+            duration: 8000
+          });
+        } finally {
+          closeDialog('manual-device-dialog');
+          manualSaving = false;
+          submit.disabled = false;
+          document.getElementById('manual-single-tab')?.setAttribute('disabled', '');
+          document.getElementById('manual-bulk-tab')?.setAttribute('disabled', '');
+          setManualMode(bulk);
+        }
+      }
+
+      function updateDeviceSelection() {
+        const boxes = [...document.querySelectorAll('.dev-check')];
+        const count = boxes.filter(box => box.checked).length;
+        const selection = document.getElementById('device-selection-count');
+        window.setAnimatedHidden?.(selection, !count);
+        selection.textContent = t(`已选择 ${count} 项`);
+        window.setListSelection?.(document.querySelector('.list-toolbar .toolbar-bulk'), count > 0);
+        const all = document.getElementById('select-all-devices');
+        all.checked = boxes.length > 0 && count === boxes.length;
+        all.indeterminate = count > 0 && count < boxes.length;
+        refreshBatchPower();
+        updateDeviceMutationControls();
+        refreshBulkDeviceActions();
+      }
+
+      function selectAllDevices(checked) {
+        document.querySelectorAll('.dev-check').forEach(box => {
+          box.checked = checked;
+        });
+        updateDeviceSelection();
+      }
+
+      function getSelected() {
+        return [...document.querySelectorAll('.dev-check:checked')].map(c => c.value).join(',');
+      }
+
+      function deviceOnline(id) {
+        return devicePowerState(id) === 'online';
+      }
+
+      function devicePowerCapable(id) {
+        return window.getDeviceRow?.(id)?.power_capable !== false;
+      }
+
+      function devicePowerState(id) {
+        const badge = document.getElementById('dev-status-' + id);
+        return badge?.dataset?.powerStatus || (badge?.classList.contains('online') ? 'online' : badge?.classList.contains('offline') ? 'offline' : 'unknown');
+      }
+
+      function selectedPowerIds(online) {
+        return [...document.querySelectorAll('.dev-check:checked')].filter(c => devicePowerCapable(c.value) && deviceOnline(c.value) === online).map(c => c.value);
+      }
+
+      function batchPowerState() {
+        if (window.deviceGatewayDeleting || window.deviceGatewayCanManage === false) return '';
+        const ids = getSelected().split(',').filter(Boolean);
+        const sameState = state => ids.length > 0 && ids.every(id => devicePowerCapable(id) && devicePowerState(id) === state);
+        const serviceReady = window.deviceGatewayOnline !== false || ids.every(id => window.powerAllowsOffline?.(id) && !window.powerNeedsLink?.(id));
+        return sameState('online') && serviceReady ? 'shutdown' : window.deviceGatewayOnline !== false && sameState('offline') ? 'wake' : '';
+      }
+
+      function batchSelectionMatches(ids, online) {
+        const selected = getSelected().split(',').filter(Boolean);
+        return selected.length === ids.length && selected.every(id => ids.includes(id)) && batchPowerState() === (online ? 'shutdown' : 'wake');
+      }
+
+      function refreshBatchPower() {
+        const button = document.getElementById('power-selected-devices');
+        const action = batchPowerState();
+        window.setAnimatedHidden?.(button, !action);
+        button.disabled = !action;
+        if (!action) {
+          delete button.dataset.action;
+          return;
+        }
+        window.setActionIcon?.(button, action === 'shutdown' ? '关机' : '开机');
+        button.classList.remove('danger');
+        button.classList.toggle('gray', action === 'wake');
+        button.dataset.action = action;
+      }
+
+      function toggleDevicePower(id) {
+        const action = window.powerButtonAction?.(id) || 'disabled';
+        if (!deviceMutationAllowed(false, action === 'link' || action === 'shutdown')) return;
+        if (!devicePowerCapable(id)) return;
+        if (action === 'wake') return wakeDevice(id);
+        if (action === 'link' || action === 'shutdown' || action === 'setup') return managePower(id);
+        if (action === 'disabled') {
+          showToast('设备状态未知，无法操作电源', {
+            error: true
+          });
+        }
+      }
+
+      function powerSelected() {
+        const action = batchPowerState();
+        if (action === 'shutdown') return shutdownSelected();
+        if (action === 'wake') return wakeSelected();
+      }
+      let batchPowerBusy = false;
+      async function wakeSelected() {
+        if (batchPowerBusy) return;
+        if (batchPowerState() !== 'wake') return;
+        const ids = selectedPowerIds(false);
+        if (!ids.length) return;
+        batchPowerBusy = true;
+        try {
+          if (!await uiConfirm('确认开机选中的离线电脑？开机后由网关探测确认。', {
+              title: '确认开机',
+              confirmText: '开机',
+              targets: deviceTargets(ids)
+            })) return;
+          if (!batchSelectionMatches(ids, false)) {
+            showToast('设备选择或状态已变化，请重新确认', {
+              error: true
+            });
+            return;
+          }
+          await postForm('/gateway/{{ gw.public_id }}/devices/wake', {
+            ids: ids.join(',')
+          });
+        } finally {
+          batchPowerBusy = false;
+        }
+      }
+      async function shutdownSelected() {
+        if (batchPowerBusy) return;
+        if (batchPowerState() !== 'shutdown') return;
+        const ids = selectedPowerIds(true);
+        if (!ids.length) return;
+        batchPowerBusy = true;
+        try {
+          await window.shutdownDeviceBatch(ids);
+        } finally {
+          batchPowerBusy = false;
+        }
+      }
+      async function deleteSelected() {
+        const versions = window.WolSync.snapshot();
+        if (!deviceMutationAllowed(false, true)) return;
+        const ids = getSelected();
+        if (!ids) {
+          await uiAlert('请先勾选设备');
+          return;
+        }
+        if (!await uiConfirm('确认删除选中的设备？网关在线时同步移除，离线时等待上线后同步。', {
+            title: '删除设备',
+            danger: true,
+            confirmText: '删除',
+            targets: deviceTargets(ids.split(','))
+          })) return;
+        if (!deviceMutationAllowed(false, true)) return;
+        postForm('/gateway/{{ gw.public_id }}/devices/batch_delete', {
+          ids
+        }, {
+          wolVersions: versions
+        });
+      }
+      let editingDeviceId;
+      let deviceEditorOriginal;
+      let deviceEditorSaving = false;
+
+      function syncDeviceEditorSave() {
+        const bound = document.getElementById('device-editor').dataset.serviceBound === 'true';
+        const changed = deviceEditorOriginal && (document.getElementById('device-new-name').value !== deviceEditorOriginal.name || document.getElementById('device-type').value !== deviceEditorOriginal.type);
+        document.getElementById('device-editor-save').disabled = deviceEditorSaving || (bound && !changed);
+      }
+      document.getElementById('device-new-name').addEventListener('input', syncDeviceEditorSave);
+      document.getElementById('device-type').addEventListener('change', syncDeviceEditorSave);
+
+      function syncDeviceEditorService() {
+        const device = window.getDeviceRow(editingDeviceId);
+        const bound = Boolean(device?.pc_service_bound && !device.pc_service_ignored);
+        const editor = document.getElementById('device-editor');
+        editor.dataset.serviceBound = String(bound);
+        editor.querySelector('.device-editor-close').hidden = !bound;
+        document.getElementById('device-editor-cancel').hidden = bound;
+        const type = document.getElementById('device-type');
+        type.disabled = bound;
+        type.title = t(bound ? '请先解绑WOL关机服务，再修改设备类型' : '识别有误时可手动修正，选择自动识别可恢复名称识别。');
+        if (bound && !document.getElementById('device-editor').open && type.value !== (device.type_override || '')) {
+          type.value = device.type_override || '';
+          type.dispatchEvent(new Event('change', {
+            bubbles: true
+          }));
+        }
+        const button = document.getElementById('device-editor-unlink');
+        // The shared editor changes layout before opening; no delayed hidden slot.
+        button.hidden = !bound;
+        button.disabled = !bound || bulkDeviceBusy || unlinkingDevices.has(String(editingDeviceId)) || window.deviceGatewayDeleting || window.deviceGatewayCanManage === false;
+        button.title = t(window.deviceGatewayActionError || '解绑WOL关机服务');
+        syncDeviceEditorSave();
+      }
+
+      let bulkDeviceBusy = false;
+      let batchShareResult = null;
+
+      function bulkDeviceSelection(action) {
+        const ids = getSelected().split(',').filter(Boolean);
+        if (!ids.length || window.deviceGatewayDeleting || window.deviceGatewayCanManage === false) return [];
+        const valid = ids.every(id => {
+          const device = window.getDeviceRow(id);
+          if (!device) return false;
+          return action === 'unlink' ? device.pc_service_bound && !device.pc_service_ignored && !unlinkingDevices.has(String(id)) : window.deviceGatewayOnline && device.power_capable && !device.share_exists;
+        });
+        return valid ? ids : [];
+      }
+
+      function refreshBulkDeviceActions() {
+        for (const [id, action] of [
+            ['unlink-selected-devices', 'unlink'],
+            ['share-selected-devices', 'share']
+          ]) {
+          const button = document.getElementById(id);
+          const allowed = bulkDeviceSelection(action).length > 0;
+          window.setAnimatedHidden?.(button, !allowed);
+          button.disabled = !allowed || bulkDeviceBusy;
+        }
+      }
+
+      function bulkSelectionStillMatches(ids, action) {
+        const current = bulkDeviceSelection(action);
+        const matches = current.length === ids.length && current.every(id => ids.includes(id));
+        if (!matches) showToast('设备选择或状态已变化，请重新确认', {
+          error: true
+        });
+        return matches;
+      }
+
+      async function unlinkSelectedServices() {
+        const versions = window.WolSync.snapshot();
+        if (bulkDeviceBusy) return;
+        const ids = bulkDeviceSelection('unlink');
+        if (!ids.length) return;
+        bulkDeviceBusy = true;
+        refreshBulkDeviceActions();
+        try {
+          if (!await uiConfirm('解绑后由网关检测设备状态，关机前需要重新确认关联。电脑上的服务会继续运行，但不会自动重新关联。', {
+              title: '批量解绑WOL关机服务',
+              confirmText: '解绑',
+              danger: true,
+              targets: deviceTargets(ids)
+            })) return;
+          if (!bulkSelectionStillMatches(ids, 'unlink')) return;
+          const result = await shareRequest('/gateway/{{ gw.public_id }}/devices/batch_unbind_service', {
+            wolVersions: versions,
+            method: 'POST',
+            body: new URLSearchParams({
+              ids: ids.join(',')
+            })
+          });
+          await refreshDevices();
+          await window.refreshPowerStates?.();
+          showToast(result.msg, {
+            success: true
+          });
+        } catch (error) {
+          showToast(error.message, {
+            error: true
+          });
+        } finally {
+          bulkDeviceBusy = false;
+          refreshBulkDeviceActions();
+          syncDeviceEditorService();
+        }
+      }
+
+      async function shareSelectedDevices() {
+        const versions = window.WolSync.snapshot();
+        if (bulkDeviceBusy) return;
+        const ids = bulkDeviceSelection('share');
+        if (!ids.length) return;
+        bulkDeviceBusy = true;
+        refreshBulkDeviceActions();
+        try {
+          const permissions = await chooseBatchSharePermissions(ids);
+          if (!permissions) return;
+          if (!bulkSelectionStillMatches(ids, 'share')) return;
+          const result = await shareRequest('/api/gateway/{{ gw.public_id }}/devices/batch_share', {
+            wolVersions: versions,
+            method: 'POST',
+            body: new URLSearchParams({
+              ids: ids.join(','),
+              ...permissions
+            })
+          });
+          batchShareResult = result;
+          document.getElementById('batch-share-username').textContent = result.username;
+          document.getElementById('batch-share-password').textContent = result.password;
+          const links = document.getElementById('batch-share-links');
+          links.replaceChildren();
+          for (const item of result.items) {
+            updateShareRowState(true, item.device_id);
+            const row = document.createElement('div');
+            const name = document.createElement('span');
+            name.textContent = item.name;
+            name.dataset.noI18n = '';
+            const link = document.createElement('a');
+            link.textContent = item.link;
+            link.href = item.link;
+            link.target = '_blank';
+            link.rel = 'noopener noreferrer';
+            link.dataset.noI18n = '';
+            row.append(name, link);
+            links.append(row);
+          }
+          openDialog('batch-share-dialog');
+          showToast('分享已生成', {
+            success: true
+          });
+        } catch (error) {
+          showToast(error.message, {
+            error: true
+          });
+        } finally {
+          bulkDeviceBusy = false;
+          refreshBulkDeviceActions();
+        }
+      }
+
+      function chooseBatchSharePermissions(ids) {
+        const dialog = document.getElementById('batch-share-options');
+        const form = document.getElementById('batch-share-options-form');
+        const button = document.getElementById('batch-share-confirm');
+        form.reset();
+        dialog.returnValue = '';
+        form.onchange = () => {
+          if (document.getElementById('batch-share-can-wake').checked || document.getElementById('batch-share-can-shutdown').checked) document.getElementById('batch-share-permission-error').hidden = true;
+        };
+        document.getElementById('batch-share-permission-error').hidden = true;
+        renderConfirmationTargets(document.getElementById('batch-share-targets'), deviceTargets(ids));
+        window.startConfirmationCountdown(dialog, [button]);
+        openDialog('batch-share-options');
+        return new Promise(resolve => {
+          let permissions;
+          const submit = event => {
+            event.preventDefault();
+            if (dialog.dataset.confirmWaiting === 'true') return;
+            permissions = {
+              can_wake: String(Number(document.getElementById('batch-share-can-wake').checked)),
+              can_shutdown: String(Number(document.getElementById('batch-share-can-shutdown').checked))
+            };
+            if (permissions.can_wake === '0' && permissions.can_shutdown === '0') {
+              document.getElementById('batch-share-permission-error').hidden = false;
+              return;
+            }
+            closeDialog('batch-share-options', 'confirm');
+          };
+          form.addEventListener('submit', submit);
+          dialog.addEventListener('close', () => {
+            form.removeEventListener('submit', submit);
+            resolve(dialog.returnValue === 'confirm' ? permissions : null);
+          }, {
+            once: true
+          });
+        });
+      }
+
+      document.getElementById('batch-share-copy').addEventListener('click', async event => {
+        if (!batchShareResult) return;
+        const value = `${t('账号')}：${batchShareResult.username}\n${t('密码')}：${batchShareResult.password}\n\n` + batchShareResult.items.map(item => `${item.name}\n${item.link}`).join('\n\n');
+        const copied = await copyShareText(value, event.currentTarget);
+        showToast(copied ? '已复制' : '复制失败，请手动复制各项内容', {
+          success: copied,
+          error: !copied
+        });
+      });
+      document.getElementById('batch-share-dialog').addEventListener('close', () => {
+        batchShareResult = null;
+        for (const id of ['batch-share-username', 'batch-share-password', 'batch-share-links']) document.getElementById(id).replaceChildren();
+      });
+
+      function editDevice(id) {
+        if (!deviceMutationAllowed(false, true)) return;
+        editingDeviceId = id;
+        document.getElementById('device-editor').dataset.syncKeys = `gateway:${window.deviceGatewayId} device:${id}`;
+        const name = document.getElementById('device-name-' + id)?.textContent || window.getDeviceRow?.(id)?.name || '';
+        document.getElementById('device-new-name').value = name;
+        const type = document.getElementById('device-type');
+        type.value = window.getDeviceRow(id)?.type_override || '';
+        deviceEditorOriginal = {
+          name,
+          type: type.value
+        };
+        type.dispatchEvent(new Event('change', {
+          bubbles: true
+        }));
+        syncDeviceEditorService();
+        const title = document.getElementById('device-edit-title');
+        title.textContent = t('编辑{名称}').replace('{名称}', name);
+        title.dataset.noI18n = '';
+        openDialog('device-editor');
+      }
+      async function saveDeviceName() {
+        if (document.getElementById('device-editor-save').disabled || deviceEditorSaving) return;
+        if (!deviceMutationAllowed(false, true)) return;
+        deviceEditorSaving = true;
+        syncDeviceEditorSave();
+        try {
+          const type = document.getElementById('device-type');
+          const result = await postForm('/gateway/{{ gw.public_id }}/devices/' + editingDeviceId + '/update', {
+            name: document.getElementById('device-new-name').value,
+            ...(type.disabled ? {} : {
+              device_type: type.value
+            })
+          });
+          if (result?.ok) closeDialog('device-editor');
+        } finally {
+          deviceEditorSaving = false;
+          syncDeviceEditorSave();
+        }
+      }
+      const unlinkingDevices = new Set();
+      async function unlinkWindowsService(id) {
+        id = String(id);
+        if (unlinkingDevices.has(id) || !window.getDeviceRow(id)?.pc_service_bound || window.getDeviceRow(id)?.pc_service_ignored) return;
+        if (!deviceMutationAllowed(false, true)) return;
+        unlinkingDevices.add(id);
+        const button = document.getElementById('device-editor-unlink');
+        if (button) button.disabled = true;
+        try {
+          if (!await uiConfirm('解绑后由网关检测设备状态，关机前需要重新确认关联。电脑上的服务会继续运行，但不会自动重新关联。', {
+              title: '解绑WOL关机服务',
+              confirmText: '解绑',
+              danger: true
+            })) return;
+          if (!deviceMutationAllowed(false, true)) return;
+          if (!window.getDeviceRow(id)?.pc_service_bound || window.getDeviceRow(id)?.pc_service_ignored) {
+            showToast('服务关联状态已变化，请刷新后重试', {
+              error: true
+            });
+            return;
+          }
+          const result = await postForm(`/gateway/{{ gw.public_id }}/devices/${id}/windows-service`, {
+            action: 'unbind'
+          });
+          await refreshDevices();
+          if (result?.ok) window.WolSync.freeze(document.getElementById('device-editor'));
+          if (result?.ok) await window.refreshPowerStates?.();
+        } finally {
+          unlinkingDevices.delete(id);
+          syncDeviceEditorService();
+          refreshBulkDeviceActions();
+        }
+      }
+
+      let managingShareDeviceId = '';
+      let managingShare = null;
+      let shareManagerRevision = 0;
+      let shareManagerBusy = false;
+      let shareManagerLoaded = false;
+
+      function shareManagerChanges() {
+        const exists = Boolean(managingShare?.exists);
+        const wake = shareManagerNode('share-can-wake').checked;
+        const shutdown = shareManagerNode('share-can-shutdown').checked;
+        return {
+          wake,
+          shutdown,
+          disabled: !wake && !shutdown,
+          dirty: exists && (wake !== Boolean(managingShare.enabled && managingShare.can_wake) || shutdown !== Boolean(managingShare.enabled && managingShare.can_shutdown))
+        };
+      }
+
+      function syncShareManagerControls() {
+        const blocked = shareManagerBusy || !shareManagerLoaded;
+        const configurable = managingShare?.can_configure !== false && window.deviceGatewayOnline && window.deviceGatewayCanManage && !window.deviceGatewayDeleting;
+        const exists = Boolean(managingShare?.exists);
+        const enabled = exists && Boolean(managingShare.enabled);
+        const changes = shareManagerChanges();
+        const save = shareManagerNode('share-manager-save');
+        const disabling = exists && changes.dirty && changes.disabled;
+        save.disabled = blocked || (exists && !changes.dirty) || (!configurable && !disabling) || (!exists && changes.disabled);
+        save.hidden = !shareManagerLoaded;
+        save.textContent = t(!exists ? '生成分享' : disabling ? '停用分享' : !enabled ? '启用' : '保存');
+        save.title = exists && !enabled && changes.disabled ? t('请至少选择一项电源权限') : '';
+        save.classList.toggle('danger', disabling);
+        shareManagerNode('share-dialog-footer').hidden = !shareManagerLoaded;
+        shareManagerNode('share-delete').hidden = !shareManagerLoaded || !exists;
+        shareManagerNode('share-enabled-state').hidden = !shareManagerLoaded || !exists;
+        shareManagerNode('device-share-permissions').disabled = blocked || (!configurable && !enabled);
+        shareManagerNode('device-share-permissions').title = !configurable && enabled ? t('网关不可管理，仅可取消全部权限以停用分享') : '';
+        shareManagerNode('share-delete').disabled = blocked || !exists;
+        shareManagerNode('share-password-reset').disabled = blocked || !exists || !configurable || managingShare?.can_reset === false;
+        shareManagerNode('share-password-reset').title = t('随机重置密码');
+        document.querySelectorAll('[data-share-copy]').forEach(button => {
+          button.disabled = blocked || (button.dataset.shareCopy === 'password' && !managingShare?.password);
+        });
+        shareManagerNode('device-share-form').setAttribute('aria-busy', String(shareManagerBusy));
+      }
+
+      async function runShareManagerAction(action) {
+        if (shareManagerBusy || !shareManagerLoaded || !managingShareDeviceId) return;
+        const revision = shareManagerRevision,
+          id = managingShareDeviceId;
+        shareManagerBusy = true;
+        syncShareManagerControls();
+        try {
+          await action(id, () => revision === shareManagerRevision);
+        } catch (error) {
+          if (revision === shareManagerRevision) {
+            setShareManagerError(error.message);
+            showToast(error.message, {
+              error: true
+            });
+          }
+        } finally {
+          if (revision === shareManagerRevision) {
+            shareManagerBusy = false;
+            syncShareManagerControls();
+          }
+        }
+      }
+
+      function shareManagerNode(id) {
+        return document.getElementById(id);
+      }
+
+      function setShareManagerError(value = '') {
+        const node = shareManagerNode('share-manager-error');
+        if (node) {
+          node.textContent = t(value);
+          node.hidden = !value;
+        }
+      }
+
+      function setShareManagerLoading(loading, text = '正在读取分享设置…') {
+        const loadingNode = shareManagerNode('device-share-loading');
+        const content = shareManagerNode('device-share-content');
+        if (loadingNode) {
+          loadingNode.hidden = !loading;
+          loadingNode.textContent = t(text);
+        }
+        if (content) content.hidden = loading;
+      }
+
+      function updateShareCredentials(data) {
+        const credentials = shareManagerNode('device-share-credentials');
+        const link = shareManagerNode('share-link');
+        const username = shareManagerNode('share-username');
+        const passwordInput = shareManagerNode('share-password');
+        if (!data?.exists) {
+          credentials.hidden = true;
+          return;
+        }
+        credentials.hidden = false;
+        link.textContent = data.link || '';
+        if (data.link) link.href = data.link;
+        else link.removeAttribute('href');
+        username.textContent = data.username || '';
+        passwordInput.textContent = data.password || '—';
+        shareManagerNode('share-password-note').hidden = Boolean(data.password);
+        updateShareEnabledState(data.enabled);
+      }
+
+      function updateShareEnabledState(enabled) {
+        const status = shareManagerNode('share-enabled-state');
+        status.textContent = t(enabled ? '已启用' : '已禁用');
+        status.dataset.enabled = String(Boolean(enabled));
+      }
+
+      function setShareDeviceInfo(device = {}) {
+        shareManagerNode('share-info-name').textContent = device.name || '—';
+        const mac = String(device.mac || '').replace(/[^a-fA-F0-9]/g, '');
+        shareManagerNode('share-info-mac').textContent = mac.length === 12 ? mac.match(/.{2}/g).join(':').toUpperCase() : '—';
+        shareManagerNode('share-info-ip').textContent = device.ip || '—';
+      }
+
+      async function resetSharePassword() {
+        if (shareManagerNode('share-password-reset').disabled) return;
+        await runShareManagerAction(async (id, current) => {
+          if (!await uiConfirm('随机重置后，当前设备的旧密码和访客会话立即失效。确认继续？', {
+              title: '随机重置密码',
+              confirmText: '重置',
+              danger: true
+            })) return;
+          if (!current()) return;
+          const data = await shareRequest(`/api/gateway/${window.deviceGatewayId}/devices/${id}/share/reset`, {
+            method: 'POST'
+          });
+          if (!current()) return;
+          managingShare = {
+            ...managingShare,
+            ...data
+          };
+          window.WolSync.freeze(shareManagerNode('device-share-dialog'));
+          updateShareCredentials(managingShare);
+          showToast(data.msg, {
+            success: true
+          });
+        });
+      }
+
+      function updateShareRowState(exists, id = managingShareDeviceId) {
+        const button = document.getElementById('device-share-' + id);
+        const device = window.getDeviceRow?.(id);
+        if (device) device.share_exists = Boolean(exists);
+        if (!button) return;
+        button.disabled = !exists && (!device?.power_capable || !window.deviceGatewayOnline || window.deviceGatewayCanManage === false || window.deviceGatewayDeleting);
+        button.title = t(button.disabled ? (!device?.power_capable ? '仅电脑和笔记本支持设备分享' : window.deviceGatewayActionError || (!window.deviceGatewayOnline ? '网关离线，无法操作设备' : '当前网关不可管理')) : '分享');
+      }
+
+      async function shareRequest(path, options = {}) {
+        const response = await fetch(path, {
+          ...options,
+          headers: {
+            ...(options.body instanceof URLSearchParams ? {
+              'Content-Type': 'application/x-www-form-urlencoded'
+            } : {}),
+            ...(options.headers || {})
+          },
+          cache: 'no-store'
+        });
+        let data = {};
+        try {
+          data = await response.json();
+        } catch (_) {}
+        if (!response.ok || data.ok !== true) throw new Error(typeof data.detail === 'string' ? data.detail : data.msg || '分享操作失败');
+        return data;
+      }
+
+      async function openDeviceShare(id) {
+        if (shareManagerNode('device-share-dialog').open) return;
+        id = String(id);
+        const device = window.getDeviceRow?.(id);
+        if (!device?.power_capable && !device?.share_exists) {
+          showToast('仅电脑和笔记本支持设备分享', {
+            error: true
+          });
+          return;
+        }
+        if (!device?.share_exists && !deviceMutationAllowed(false, false)) return;
+        managingShareDeviceId = id;
+        shareManagerNode('device-share-dialog').dataset.syncKeys = `gateway:${window.deviceGatewayId} device:${id} share:${id}`;
+        managingShare = null;
+        const revision = ++shareManagerRevision;
+        shareManagerBusy = false;
+        shareManagerLoaded = false;
+        shareManagerNode('share-password').textContent = '';
+        setShareDeviceInfo(device);
+        shareManagerNode('device-share-credentials').hidden = true;
+        shareManagerNode('share-manager-save').hidden = true;
+        syncShareManagerControls();
+        setShareManagerError('');
+        setShareManagerLoading(true);
+        openDialog('device-share-dialog');
+        try {
+          const data = await shareRequest(`/api/gateway/${window.deviceGatewayId}/devices/${id}/share`);
+          if (revision !== shareManagerRevision) return;
+          managingShare = data;
+          window.WolSync.freeze(shareManagerNode('device-share-dialog'));
+          shareManagerLoaded = true;
+          shareManagerNode('share-can-wake').checked = data.exists ? Boolean(data.enabled && data.can_wake) : true;
+          shareManagerNode('share-can-shutdown').checked = data.exists ? Boolean(data.enabled && data.can_shutdown) : true;
+          setShareDeviceInfo(data.device);
+          shareManagerNode('share-delete').hidden = !data.exists;
+          updateShareCredentials(data);
+          if (data.can_configure === false) setShareManagerError('当前网关状态不允许修改分享设置');
+          setShareManagerLoading(false);
+          syncShareManagerControls();
+        } catch (error) {
+          if (revision !== shareManagerRevision) return;
+          shareManagerNode('device-share-loading').hidden = true;
+          shareManagerNode('device-share-content').hidden = true;
+          setShareManagerError(error.message);
+          showToast(error.message, {
+            error: true
+          });
+        }
+      }
+
+      async function saveDeviceShare(event) {
+        event?.preventDefault();
+        if (!managingShareDeviceId || shareManagerBusy || !shareManagerLoaded) return;
+        const canWake = shareManagerNode('share-can-wake').checked;
+        const canShutdown = shareManagerNode('share-can-shutdown').checked;
+        const changes = shareManagerChanges();
+        if (managingShare?.exists && !changes.dirty) return;
+        if (managingShare?.can_configure === false && !changes.disabled) return;
+        if (!managingShare?.exists && changes.disabled) {
+          setShareManagerError('请至少选择一项电源权限');
+          return;
+        }
+        setShareManagerError('');
+        await runShareManagerAction(async (id, current) => {
+          const creating = !managingShare?.exists;
+          if (!current()) return;
+          const url = `/api/gateway/${window.deviceGatewayId}/devices/${id}/share${creating ? '' : '/settings'}`;
+          const body = new URLSearchParams({
+            can_wake: canWake ? '1' : '0',
+            can_shutdown: canShutdown ? '1' : '0'
+          });
+          const data = await shareRequest(url, {
+            method: 'POST',
+            body
+          });
+          updateShareRowState(true, id);
+          if (!current()) return;
+          managingShare = {
+            ...managingShare,
+            ...data
+          };
+          window.WolSync.freeze(shareManagerNode('device-share-dialog'));
+          updateShareCredentials(managingShare);
+          shareManagerNode('share-can-wake').checked = Boolean(managingShare.enabled && managingShare.can_wake);
+          shareManagerNode('share-can-shutdown').checked = Boolean(managingShare.enabled && managingShare.can_shutdown);
+          showToast(creating ? '分享已生成' : data.msg || '分享设置已保存', {
+            success: true
+          });
+        });
+      }
+
+      async function copyShareText(value, restoreFocus) {
+        try {
+          await navigator.clipboard.writeText(value);
+          return true;
+        } catch (_) {
+          const field = document.createElement('textarea');
+          field.value = value;
+          field.readOnly = true;
+          field.style.cssText = 'position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;inset:0';
+          (restoreFocus?.closest('dialog') || shareManagerNode('device-share-dialog')).append(field);
+          try {
+            field.select();
+            return document.execCommand('copy');
+          } catch (_) {
+            return false;
+          } finally {
+            field.value = '';
+            field.remove();
+            restoreFocus?.focus({
+              preventScroll: true
+            });
+          }
+        }
+      }
+
+      async function copyShareValue(kind, trigger) {
+        const values = {
+          link: shareManagerNode('share-link')?.textContent,
+          username: shareManagerNode('share-username')?.textContent,
+          password: shareManagerNode('share-password')?.textContent
+        };
+        const value = values[kind] || '';
+        if (!value) return;
+        if (await copyShareText(value, trigger)) {
+          showToast('已复制', {
+            success: true
+          });
+        } else setShareManagerError('复制失败，请手动复制各项内容');
+      }
+
+      async function deleteDeviceShare() {
+        await runShareManagerAction(async (id, current) => {
+          if (!await uiConfirm('删除后分享链接、账号和所有访客会话立即失效，确认删除分享？', {
+              title: '删除分享',
+              confirmText: '删除',
+              danger: true,
+              skipCountdown: true
+            })) return;
+          if (!current()) return;
+          const data = await shareRequest(`/api/gateway/${window.deviceGatewayId}/devices/${id}/share/delete`, {
+            method: 'POST'
+          });
+          updateShareRowState(false, id);
+          if (!current()) return;
+          managingShare = null;
+          closeDialog('device-share-dialog');
+          showToast(data.msg || '分享已删除', {
+            success: true
+          });
+        });
+      }
+
+      shareManagerNode('device-share-dialog')?.addEventListener('close', () => {
+        ++shareManagerRevision;
+        managingShareDeviceId = '';
+        managingShare = null;
+        shareManagerBusy = false;
+        shareManagerLoaded = false;
+        for (const id of ['share-password', 'share-link', 'share-username', 'share-info-name', 'share-info-mac', 'share-info-ip']) shareManagerNode(id).textContent = '';
+        shareManagerNode('share-link').removeAttribute('href');
+        shareManagerNode('device-share-credentials').hidden = true;
+      });
+
+      shareManagerNode('device-share-permissions')?.addEventListener('change', syncShareManagerControls);
+      shareManagerNode('device-share-form')?.addEventListener('submit', saveDeviceShare);
+      shareManagerNode('share-manager-close')?.addEventListener('click', () => closeDialog('device-share-dialog'));
+      shareManagerNode('share-password-reset')?.addEventListener('click', resetSharePassword);
+      shareManagerNode('share-delete')?.addEventListener('click', deleteDeviceShare);
+      document.querySelectorAll('[data-share-copy]').forEach(button => button.addEventListener('click', () => copyShareValue(button.dataset.shareCopy, button)));
+      const wakingDevices = new Set();
+      async function wakeDevice(id) {
+        if (!devicePowerCapable(id) || wakingDevices.has(id) || deviceOnline(id)) return;
+        if (window.deviceGatewayOnline === false || devicePowerState(id) !== 'offline') {
+          showToast('网关离线，无法下发唤醒指令', {
+            error: true
+          });
+          return;
+        }
+        wakingDevices.add(id);
+        try {
+          const name = document.getElementById('device-name-' + id).textContent;
+          if (!await uiConfirm(t('确认开机这台电脑？开机后由网关探测确认。'), {
+              titleText: t('打开{名称}').replace('{名称}', name),
+              confirmText: '开机'
+            })) return;
+          if (!devicePowerCapable(id) || !document.getElementById('device-power-' + id) || window.powerButtonAction?.(id) !== 'wake') return;
+          await postForm('/gateway/{{ gw.public_id }}/devices/wake', {
+            ids: String(id)
+          });
+        } finally {
+          wakingDevices.delete(id);
+        }
+      }
+      const deviceSentinel = document.getElementById('devices-sentinel');
+      let activeDevicePage = Number(deviceSentinel.dataset?.page || 1);
+      let deviceTotalPages = Number(deviceSentinel.dataset?.totalPages || 1);
+      let deviceListRequest = 0;
+      let deviceListLoading = false;
+      let deviceListPending = null;
+      let deviceResultTotal = {{ total }};
+      let deviceListSignature = JSON.stringify([{{ q|tojson }}, {{ status_filter|tojson }}, {{ sort|tojson }}, {{ direction|tojson }}]);
+      let loadedDevicePages = new Set(activeDevicePage ? [activeDevicePage] : []);
+      const deviceFetchErrors = {
+        list: '',
+        status: ''
+      };
+
+      function reportDeviceFetchError(message, source = 'list') {
+        if (!Object.values(deviceFetchErrors).includes(message)) showToast(message, {
+          error: true
+        });
+        deviceFetchErrors[source] = message;
+      }
+
+      function renderLanKind(element, device = {}) {
+        element.dataset.kind = device.icon_kind || 'lan';
+        element.dataset.solid = String(Boolean(device.icon_solid));
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('aria-hidden', 'true');
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', device.icon_path || 'M2 8a16 16 0 0 1 20 0M5 12a11 11 0 0 1 14 0M8 16a6 6 0 0 1 8 0M12 20h.01');
+        svg.append(path);
+        element.replaceChildren(svg);
+        element.dataset.status = device.status || 'unknown';
+        element.title = (device.icon_brand ? device.icon_brand + ' · ' : '') + t(device.icon_label || '局域网设备') + ' · ' + t(({
+          online: '在线',
+          offline: '离线',
+          unknown: '未知',
+          unseen: '未检测到'
+        })[device.status] || '未知');
+        element.setAttribute('aria-label', element.title);
+      }
+
+      function updateServiceControls(row, device) {
+        renderLanKind(row.querySelector('.device-kind'), device);
+        row.querySelectorAll('[data-device-mutation]').forEach(button => {
+          button.disabled = window.deviceGatewayDeleting || window.deviceGatewayCanManage === false;
+        });
+        const power = row.querySelector('[id^="device-power-"]');
+        if (power) power.hidden = false;
+        const share = row.querySelector('[id^="device-share-"]');
+        if (share) {
+          share.disabled = !device.share_exists && (!device.power_capable || !window.deviceGatewayOnline || window.deviceGatewayCanManage === false || window.deviceGatewayDeleting);
+          share.title = t(share.disabled ? (!device.power_capable ? '仅电脑和笔记本支持设备分享' : window.deviceGatewayActionError || '网关离线，无法操作设备') : '分享');
+        }
+
+      }
+
+      function patchDeviceRow(row, device, selected) {
+        window.cacheDeviceRow?.(device);
+        const id = String(device.id);
+        if (!row.children.length) {
+          for (let i = 0; i < 7; i++) row.append(document.createElement('td'));
+          const check = document.createElement('input');
+          check.type = 'checkbox';
+          check.className = 'dev-check';
+          check.value = id;
+          check.addEventListener('change', updateDeviceSelection);
+          row.children[0].append(check);
+          const identity = document.createElement('div');
+          identity.className = 'device-identity';
+          const kind = document.createElement('span');
+          kind.className = 'device-kind';
+          renderLanKind(kind);
+          const badge = document.createElement('span');
+          badge.id = 'dev-status-' + id;
+          const name = document.createElement('span');
+          name.id = 'device-name-' + id;
+          name.dataset.noI18n = '';
+          identity.append(kind, name, badge);
+          row.children[2].append(identity);
+          row.children[5].id = 'dev-report-' + id;
+          row.children[6].className = 'row-actions';
+          for (const [label, handler, style] of [
+              ['编辑', editDevice, 'gray'],
+              ['开机', toggleDevicePower, 'gray'],
+              ['分享', id => window.openDeviceShare?.(id), 'gray'],
+              ['删除', deleteDevice, 'danger']
+            ]) {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = style;
+            button.textContent = t(label);
+            button.addEventListener('click', () => handler(device.id));
+            if (handler === editDevice || handler === deleteDevice) button.dataset.deviceMutation = '';
+            if (handler === toggleDevicePower) button.id = 'device-power-' + id;
+            if (label === '分享') button.id = 'device-share-' + id;
+            row.children[6].append(button);
+          }
+        }
+        row.querySelector('.dev-check').checked = selected.has(id);
+        row.children[1].textContent = device.display_id || id;
+        row.querySelector('[id^="device-name-"]').textContent = device.name;
+        for (const index of [3, 4, 5]) row.children[index].classList.add('mono');
+        row.children[4].textContent = String(device.mac).replace(/(..)(?=.)/g, '$1:').toUpperCase();
+        row.children[3].textContent = device.ip || '-';
+        const badge = row.querySelector('[id^="dev-status-"]');
+        badge.dataset.powerStatus = device.power_status || device.status;
+        badge.className = 'badge ' + device.status;
+        badge.textContent = t(({
+          online: '在线',
+          offline: '离线',
+          unknown: '未知',
+          unseen: '未知'
+        })[device.status] || '未知');
+        badge.title = t(device.status_reason || (device.status === 'unseen' ? '未检测到' : ''));
+        updateServiceControls(row, device);
+        row.children[5].textContent = device.last_report || '-';
+      }
+
+      function renderDeviceBatch(data, append, selected) {
+        const items = data.items;
+        if (append) window.deviceRows = [...window.deviceRows.filter(item => !items.some(next => String(next.id) === String(item.id))), ...items];
+        else window.deviceRows = items;
+        if (data.gateway) applyGatewayAvailability(data.gateway);
+        const body = document.getElementById('devices-tbody');
+        const scroll = body.closest('.table-scroll');
+        const top = scroll.scrollTop,
+          left = scroll.scrollLeft;
+        const existing = new Map([...body.querySelectorAll('tr')].filter(row => row.querySelector('.dev-check')).map(row => [row.querySelector('.dev-check').value, row]));
+        const incoming = new Set(items.map(item => String(item.id)));
+        if (!append)
+          for (const [id, row] of existing)
+            if (!incoming.has(id)) window.removeTableRow?.(row);
+        for (const row of body.querySelectorAll('tr'))
+          if (!row.querySelector('.dev-check')) window.removeTableRow?.(row);
+        items.forEach((item, index) => {
+          const row = existing.get(String(item.id)) || document.createElement('tr');
+          window.animateTableRow?.(row);
+          patchDeviceRow(row, item, selected);
+          if (append) {
+            if (!row.isConnected) body.append(row);
+          } else if (body.children[index] !== row) body.insertBefore(row, body.children[index] || null);
+        });
+        if (!body.children.length) {
+          const row = body.insertRow();
+          const cell = row.insertCell();
+          cell.colSpan = 7;
+          cell.textContent = t(data.all_total ? '没有符合条件的设备' : '暂无设备，可手动添加或扫描局域网');
+        }
+        deviceFetchErrors.list = '';
+        window.refreshPowerButtons?.();
+        void window.refreshPowerStates?.();
+        document.getElementById('device-count').textContent = `${data.online_total}/${data.all_total}`;
+        document.getElementById('device-count').dataset.total = String(data.all_total);
+        document.getElementById('device-count').title = t(data.unknown_total ? '在线 / 全部；部分设备状态未知' : '在线 / 全部');
+        setSearchAvailable('device-search-form', data.all_total > 0);
+        updateDeviceSelection();
+        activeDevicePage = data.page;
+        if (!append) loadedDevicePages.clear();
+        loadedDevicePages.add(data.page);
+        deviceResultTotal = data.total;
+        deviceTotalPages = data.total_pages;
+        deviceSentinel.dataset.page = String(activeDevicePage);
+        deviceSentinel.dataset.totalPages = String(deviceTotalPages);
+        window.setAnimatedHidden?.(deviceSentinel, activeDevicePage >= deviceTotalPages);
+        scroll.scrollTop = top;
+        scroll.scrollLeft = left;
+      }
+
+      async function refreshDeviceList(page = 1, append = false, showLoading = true) {
+        if (deviceListLoading) {
+          if (!append) {
+            deviceListPending = {
+              page,
+              append,
+              showLoading
+            };
+            ++deviceListRequest;
+          }
+          return;
+        }
+        deviceListLoading = true;
+        const loadingRow = document.getElementById('device-list-loading');
+        const loadingTimer = setTimeout(() => {
+          if (showLoading && loadingRow) loadingRow.hidden = false;
+        }, 350);
+        document.getElementById('device-table').setAttribute('aria-busy', 'true');
+        const q = document.getElementById('device-search').value || '';
+        const status = document.getElementById('device-status-filter').value;
+        const order = globalThis.WolTables?.options('device-table') || {
+          sort: 'id',
+          direction: 'desc'
+        };
+        const signature = JSON.stringify([q, status, order.sort, order.direction]);
+        const pages = !append && page > 1 && page === activeDevicePage && signature === deviceListSignature ? [...loadedDevicePages].sort((a, b) => a - b) : [page];
+        const selected = new Set([...document.querySelectorAll('.dev-check:checked')].map(box => box.value));
+        const requestId = ++deviceListRequest;
+        try {
+          for (let index = 0; index < pages.length; index++) {
+            const response = await fetch(`/api/gateway/{{ gw.public_id }}/device_results?page=${pages[index]}&page_size={{ page_size }}&q=${encodeURIComponent(q)}&status=${encodeURIComponent(status)}&${new URLSearchParams(order)}`, {
+              cache: 'no-store',
+              signal: AbortSignal.timeout(10000)
+            });
+            if (!response.ok) throw new Error('设备列表读取失败');
+            const data = await response.json();
+            if (requestId !== deviceListRequest) return;
+            renderDeviceBatch(data, append || index > 0, selected);
+            deviceListSignature = signature;
+            if (data.page >= data.total_pages) break;
+            if (index + 1 < pages.length) await new Promise(resolve => setTimeout(resolve, 16));
+          }
+          const url = `/gateway/{{ gw.public_id }}/devices?page=${activeDevicePage}&page_size={{ page_size }}&q=${encodeURIComponent(q)}&status=${encodeURIComponent(status)}&${new URLSearchParams(order)}`;
+          history.replaceState({}, '', url);
+        } catch (error) {
+          if (requestId !== deviceListRequest) return;
+          reportDeviceFetchError(error.message || '设备列表读取失败');
+          if (!window.deviceRows.length) {
+            const cell = document.querySelector('#devices-tbody td');
+            if (cell) {
+              const retry = document.createElement('button');
+              retry.type = 'button';
+              retry.className = 'gray';
+              retry.dataset.noIcon = '';
+              retry.textContent = t('设备列表读取失败，点击重试');
+              retry.addEventListener('click', () => refreshDeviceList(page, false));
+              cell.replaceChildren(retry);
+            }
+          }
+        } finally {
+          clearTimeout(loadingTimer);
+          if (loadingRow) loadingRow.hidden = true;
+          deviceListLoading = false;
+          document.getElementById('device-table').setAttribute('aria-busy', 'false');
+          if (deviceListPending) {
+            const pending = deviceListPending;
+            deviceListPending = null;
+            refreshDeviceList(pending.page, pending.append, pending.showLoading);
+          }
+        }
+      }
+
+      globalThis.WolTables?.bind("device-table", () => refreshDeviceList(1, false));
+      let deviceSearchTimer;
+      document.getElementById('device-search').addEventListener('input', () => {
+        clearTimeout(deviceSearchTimer);
+        deviceSearchTimer = setTimeout(() => refreshDeviceList(1, false), 250);
+      });
+      document.getElementById('device-status-filter').addEventListener('change', () => {
+        clearTimeout(deviceSearchTimer);
+        document.querySelectorAll('.dev-check').forEach(box => {
+          box.checked = false;
+        });
+        updateDeviceSelection();
+        void refreshDeviceList(1, false);
+      });
+      if (typeof IntersectionObserver === 'function') new IntersectionObserver(entries => {
+        if (!deviceListLoading && activeDevicePage > 0 && entries.some(entry => entry.isIntersecting) && activeDevicePage < deviceTotalPages) refreshDeviceList(activeDevicePage + 1, true);
+      }, {
+        rootMargin: '120px'
+      }).observe(deviceSentinel);
+      {% if deferred %}
+      document.addEventListener('DOMContentLoaded', () => setTimeout(() => refreshDeviceList({{ page }}, false), 0));
+      {% endif %}
+      async function deleteDevice(id) {
+        const versions = window.WolSync.snapshot();
+        if (!deviceMutationAllowed(false, true)) return;
+        const name = document.getElementById('device-name-' + id)?.textContent || String(id);
+        if (!await uiConfirm('确认删除这台子设备？', {
+            titleText: t('删除{名称}').replace('{名称}', name),
+            danger: true,
+            confirmText: '删除'
+          })) return;
+        if (!deviceMutationAllowed(false, true)) return;
+        const target = '/gateway/{{ gw.public_id }}/devices/' + id + '/delete';
+        const response = await fetch(target, {
+          wolVersions: versions,
+          method: 'POST'
+        });
+        const result = await response.json();
+        showToast(result.msg || '操作完成', {
+          success: result.ok,
+          error: !result.ok
+        });
+        if (result.ok) await refreshDeviceList(typeof activeDevicePage !== 'undefined' ? activeDevicePage : 1, false);
+      }
+
+      function applyGatewayAvailability(availability) {
+        const known = availability.connectionKnown !== false;
+        const changed = known && lastGatewayConnectionOnline !== Boolean(availability.online);
+        if (known) lastGatewayConnectionOnline = Boolean(availability.online);
+        window.deviceGatewayOnline = Boolean(availability.online);
+        if (typeof availability.delete_pending === 'boolean') window.deviceGatewayDeleting = availability.delete_pending;
+        if (typeof availability.can_manage === 'boolean') window.deviceGatewayCanManage = availability.can_manage;
+        if (typeof availability.action_error === 'string') window.deviceGatewayActionError = availability.action_error;
+        const badge = document.getElementById('device-gateway-status');
+        badge.className = 'badge ' + availability.status;
+        badge.textContent = t(({
+          online: '在线',
+          offline: '离线',
+          long_offline: '长期离线',
+          pairing_expired: '配对超时',
+          pairing_error: '配对码错误',
+          reset_failed: '重置失败',
+          unbound: '待绑定',
+          error: '异常',
+          bind_failed: '绑定失败',
+          deleting: '待删除'
+        })[availability.status] || '异常');
+        badge.title = t(availability.message || '');
+        if (known && changed) {
+          showToast(availability.online ? '网关已上线' : '网关已离线', {
+            success: Boolean(availability.online),
+            error: !availability.online
+          });
+        }
+        window.refreshPowerButtons?.();
+        updateDeviceMutationControls();
+      }
+      let deviceStatusLoading = false;
+      async function refreshDevices() {
+        if (deviceStatusLoading || deviceListLoading || !activeDevicePage) return;
+        deviceStatusLoading = true;
+        const listRevision = deviceListRequest;
+        try {
+          const ids = [...new Set(window.deviceRows.map(row => String(row.id)))].join(',');
+          const q = document.getElementById('device-search').value || '';
+          const status = document.getElementById('device-status-filter').value;
+          const r = await fetch(`/api/gateway/{{ gw.public_id }}/device_status?ids=${encodeURIComponent(ids)}&q=${encodeURIComponent(q)}&status=${encodeURIComponent(status)}`, {
+            cache: 'no-store',
+            signal: AbortSignal.timeout(8000)
+          });
+          if (!r.ok) throw new Error('设备列表读取失败');
+          const data = await r.json();
+          if (listRevision !== deviceListRequest) return;
+          const list = data.items;
+          if (!Array.isArray(list)) throw new Error('设备列表读取失败');
+          const visibleIds = new Set(list.map(d => String(d.id)));
+          const layoutChanged = deviceResultTotal !== data.total || [...document.querySelectorAll('.dev-check')].some(box => !visibleIds.has(box.value)) || list.some(row => window.getDeviceRow(row.id)?.revision !== row.revision);
+          applyGatewayAvailability(data.gateway);
+          deviceFetchErrors.status = '';
+          document.getElementById('device-count').textContent = `${data.online_total}/${data.all_total}`;
+          document.getElementById('device-count').dataset.total = String(data.all_total);
+          document.getElementById('device-count').title = t(data.unknown_total ? '在线 / 全部；部分设备状态未知' : '在线 / 全部');
+          for (const d of list) {
+            window.cacheDeviceRow?.(d);
+            const el = document.getElementById('dev-status-' + d.id);
+            if (el) {
+              el.dataset.powerStatus = d.power_status || d.status;
+              el.className = 'badge ' + d.status;
+              el.textContent = t(({
+                online: '在线',
+                offline: '离线',
+                unknown: '未知',
+                unseen: '未知'
+              })[d.status] || '未知');
+              el.title = t(d.status_reason || (d.status === 'unseen' ? '未检测到' : ''));
+              updateServiceControls(el.closest('tr'), d);
+            }
+            const rp = document.getElementById('dev-report-' + d.id);
+            if (rp) rp.textContent = d.last_report || '-';
+          }
+          window.refreshPowerButtons?.();
+          refreshBulkDeviceActions();
+          syncDeviceEditorService();
+          if (shareManagerLoaded) syncShareManagerControls();
+          if (shareManagerLoaded && !shareManagerBusy && shareManagerNode('device-share-dialog').open) {
+            const current = list.find(row => String(row.id) === managingShareDeviceId);
+            if (current && (current.share_revision || '') !== (managingShare?.revision || '')) {
+              const view = await shareRequest(`/api/gateway/${window.deviceGatewayId}/devices/${managingShareDeviceId}/share`);
+              if (!shareManagerBusy && shareManagerNode('device-share-dialog').open && !shareManagerChanges().dirty) {
+                managingShare = view;
+                updateShareCredentials(view);
+                setShareDeviceInfo(view.device);
+                shareManagerNode('share-can-wake').checked = view.exists ? Boolean(view.enabled && view.can_wake) : true;
+                shareManagerNode('share-can-shutdown').checked = view.exists ? Boolean(view.enabled && view.can_shutdown) : true;
+                window.WolSync.freeze(shareManagerNode('device-share-dialog'));
+                syncShareManagerControls();
+              }
+            }
+          }
+          if (layoutChanged) await refreshDeviceList(activeDevicePage, false, false);
+          globalThis.WolTables?.reorder("device-table");
+        } catch (error) {
+          // A failed read cannot authorize a command from an old badge.
+          if (listRevision !== deviceListRequest) return;
+          applyGatewayAvailability({
+            online: false,
+            status: 'error',
+            message: '无法读取网关状态，请稍后重试',
+            connectionKnown: false
+          });
+          document.querySelectorAll('[id^="dev-status-"]').forEach(badge => {
+            badge.dataset.powerStatus = 'unknown';
+            badge.className = 'badge unknown';
+            badge.textContent = t('未知');
+            badge.title = t('无法读取设备状态，暂停电源操作');
+            const icon = badge.closest('tr').querySelector('.device-kind');
+            icon.dataset.status = 'unknown';
+            icon.title = t('无法读取设备状态，暂停电源操作');
+            icon.setAttribute('aria-label', icon.title);
+          });
+          syncDeviceEditorService();
+          refreshBulkDeviceActions();
+          document.getElementById('device-count').textContent = `—/${document.getElementById('device-count').dataset.total || '0'}`;
+          window.refreshPowerButtons?.();
+          reportDeviceFetchError('设备列表读取失败', 'status');
+        } finally {
+          deviceStatusLoading = false;
+        }
+      }
+      setInterval(() => {
+        if (!document.hidden) void refreshDevices();
+      }, 3000);
+      window.addEventListener('focus', refreshDevices);
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) void refreshDevices();
+      });
+      document.addEventListener('DOMContentLoaded', refreshDevices);
+
+      /* Page exports used by markup and the shared UI. */
+      expose({
+        get openDeviceShare() {
+          return openDeviceShare;
+        },
+        get saveDeviceShare() {
+          return saveDeviceShare;
+        },
+        get lastGatewayConnectionOnline() {
+          return lastGatewayConnectionOnline;
+        },
+        set lastGatewayConnectionOnline(value) {
+          lastGatewayConnectionOnline = value;
+        },
+        get managePower() {
+          return managePower;
+        },
+        get openScanDialog() {
+          return openScanDialog;
+        },
+        get manualBulk() {
+          return manualBulk;
+        },
+        set manualBulk(value) {
+          manualBulk = value;
+        },
+        get manualSaving() {
+          return manualSaving;
+        },
+        set manualSaving(value) {
+          manualSaving = value;
+        },
+        get setManualMode() {
+          return setManualMode;
+        },
+        get openManualAdd() {
+          return openManualAdd;
+        },
+        get saveManualDevices() {
+          return saveManualDevices;
+        },
+        get updateDeviceSelection() {
+          return updateDeviceSelection;
+        },
+        get selectAllDevices() {
+          return selectAllDevices;
+        },
+        get getSelected() {
+          return getSelected;
+        },
+        get deviceOnline() {
+          return deviceOnline;
+        },
+        get devicePowerState() {
+          return devicePowerState;
+        },
+        get selectedPowerIds() {
+          return selectedPowerIds;
+        },
+        get batchPowerState() {
+          return batchPowerState;
+        },
+        get batchSelectionMatches() {
+          return batchSelectionMatches;
+        },
+        get refreshBatchPower() {
+          return refreshBatchPower;
+        },
+        get toggleDevicePower() {
+          return toggleDevicePower;
+        },
+        get powerSelected() {
+          return powerSelected;
+        },
+        get batchPowerBusy() {
+          return batchPowerBusy;
+        },
+        set batchPowerBusy(value) {
+          batchPowerBusy = value;
+        },
+        get wakeSelected() {
+          return wakeSelected;
+        },
+        get shutdownSelected() {
+          return shutdownSelected;
+        },
+        get deleteSelected() {
+          return deleteSelected;
+        },
+        get editingDeviceId() {
+          return editingDeviceId;
+        },
+        set editingDeviceId(value) {
+          editingDeviceId = value;
+        },
+        get unlinkSelectedServices() {
+          return unlinkSelectedServices;
+        },
+        get shareSelectedDevices() {
+          return shareSelectedDevices;
+        },
+        get editDevice() {
+          return editDevice;
+        },
+        get saveDeviceName() {
+          return saveDeviceName;
+        },
+        get unlinkWindowsService() {
+          return unlinkWindowsService;
+        },
+        get wakingDevices() {
+          return wakingDevices;
+        },
+        get wakeDevice() {
+          return wakeDevice;
+        },
+        get deviceSentinel() {
+          return deviceSentinel;
+        },
+        get activeDevicePage() {
+          return activeDevicePage;
+        },
+        set activeDevicePage(value) {
+          activeDevicePage = value;
+        },
+        get deviceTotalPages() {
+          return deviceTotalPages;
+        },
+        set deviceTotalPages(value) {
+          deviceTotalPages = value;
+        },
+        get deviceListRequest() {
+          return deviceListRequest;
+        },
+        set deviceListRequest(value) {
+          deviceListRequest = value;
+        },
+        get deviceListLoading() {
+          return deviceListLoading;
+        },
+        set deviceListLoading(value) {
+          deviceListLoading = value;
+        },
+        get deviceListPending() {
+          return deviceListPending;
+        },
+        set deviceListPending(value) {
+          deviceListPending = value;
+        },
+        get deviceFetchErrors() {
+          return deviceFetchErrors;
+        },
+        get reportDeviceFetchError() {
+          return reportDeviceFetchError;
+        },
+        get renderLanKind() {
+          return renderLanKind;
+        },
+        get patchDeviceRow() {
+          return patchDeviceRow;
+        },
+        get refreshDeviceList() {
+          return refreshDeviceList;
+        },
+        get deviceSearchTimer() {
+          return deviceSearchTimer;
+        },
+        set deviceSearchTimer(value) {
+          deviceSearchTimer = value;
+        },
+        get deleteDevice() {
+          return deleteDevice;
+        },
+        get applyGatewayAvailability() {
+          return applyGatewayAvailability;
+        },
+        get refreshDevices() {
+          return refreshDevices;
+        }
+      });
+    });
+    /* page-scope:end */
+  </script>
+{% endblock %}

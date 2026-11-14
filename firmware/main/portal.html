@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>网关配网</title><style>
+:root{--bg:#f4f7fb;--surface:#fff;--text:#1e293b;--muted:#758298;--line:#e7edf5;--primary:#3864ec}*{box-sizing:border-box}body{font:14px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--bg);color:var(--text);margin:0;padding:28px 16px}main{max-width:480px;margin:auto}.brand{font-size:12px;letter-spacing:.12em;color:var(--muted);margin-bottom:8px}h2{font-size:16px;margin:0}#identity{font:12px ui-monospace,monospace;color:var(--muted);margin:0 0 24px}.card{background:var(--surface);border:1px solid var(--line);padding:22px;border-radius:16px;margin-bottom:16px;box-shadow:0 4px 18px #1e293b04}.section-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px}label{display:block;margin:16px 0;color:var(--text)}input{display:block;width:100%;margin-top:8px;padding:12px 14px;border:1px solid var(--line);background:#fafcff;border-radius:9px;font:inherit;color:var(--text)}input:focus{outline:2px solid #3864ec26;border-color:var(--primary)}button{background:var(--primary);color:#fff;padding:12px 16px;border:0;border-radius:9px;width:100%;font:inherit;font-weight:550;cursor:pointer;min-height:44px}button:disabled{opacity:.55;cursor:default}.secondary{background:#edf1f8;color:#586980}.scan-button{width:auto;min-height:34px;padding:6px 10px;font-size:12px;display:inline-flex;align-items:center;gap:6px}.scan-button svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.8}small{color:var(--muted);font-size:12px}.status{background:#edf3ff;padding:16px 18px;border-radius:12px;margin-bottom:16px}.status.error{background:#fff0ed;color:#b44a3d}.status.success{background:#eaf7f1;color:#168366}.status p{margin:5px 0 0}.wifi-list{display:grid;gap:8px;max-height:290px;overflow:auto;scrollbar-width:thin;scrollbar-color:#b8c5d8 transparent}.wifi-option{display:flex;align-items:center;gap:12px;background:#fff;border:1px solid var(--line);text-align:left;color:var(--text);padding:12px;min-height:62px;font-weight:400}.wifi-option[aria-checked=true]{border-color:var(--primary);background:#f3f6ff;box-shadow:0 0 0 1px var(--primary)}.wifi-option:disabled{background:#f7f8fb;opacity:.6}.wifi-icon{width:21px;height:21px;fill:none;stroke:#8494af;stroke-width:1.8;flex-shrink:0}.wifi-option[aria-checked=true] .wifi-icon{stroke:var(--primary)}.wifi-body{flex:1;min-width:0}.wifi-name{display:block;font-size:14px;font-weight:550;overflow-wrap:anywhere}.wifi-meta{display:block;color:var(--muted);font-size:11px;margin-top:2px}.wifi-security{font-size:10px;padding:3px 6px;background:#f0f3f8;border-radius:5px;color:#758298;white-space:nowrap}.wifi-check{width:14px;height:14px;border:1px solid #cbd5e1;border-radius:50%;flex-shrink:0}.wifi-option[aria-checked=true] .wifi-check{border:4px solid var(--primary)}.spinner{display:inline-block;width:28px;height:28px;border:3px solid #e5ebf6;border-top-color:var(--primary);border-radius:50%;animation:spin .8s linear infinite}.loading-screen{position:fixed;inset:0;background:var(--bg);display:grid;place-items:center;z-index:10}.loading-panel{text-align:center;padding:24px}.loading-panel p{margin:14px 0 0;font-size:15px;font-weight:550;color:var(--text)}.loading-panel small{display:block;margin-top:4px}.wifi-empty{padding:24px;text-align:center;color:var(--muted);font-size:12px}.card-footer{margin-top:20px}#edit-network{margin-bottom:16px}select[hidden]{display:none!important}[hidden]{display:none!important}@keyframes spin{to{transform:rotate(360deg)}}@media(max-width:380px){body{padding:22px 12px}.card{padding:18px}}
+</style><style>#identity{font:12px ui-monospace,monospace;color:var(--muted);margin:22px 0 0;text-align:center}.section-heading{display:grid;grid-template-columns:minmax(0,1fr) 36px;gap:2px 12px}.section-heading>h2{grid-column:1;grid-row:1}.wifi-band{grid-column:1;grid-row:2;margin:0;color:var(--muted);font-size:12px}.scan-button{grid-column:2;grid-row:1 / span 2;justify-content:center;width:36px;height:36px;min-height:36px;padding:8px;font-size:13px;font-variant-numeric:tabular-nums}.scan-button svg{width:18px;height:18px}.scan-button:focus-visible{outline:2px solid var(--primary);outline-offset:2px}</style></head>
+<body>
+<div id="page-loading" class="loading-screen" role="status" aria-live="polite" aria-label="加载中"><div class="loading-panel"><span class="spinner" aria-hidden="true"></span><p id="loading-title">正在读取网关状态</p><small id="loading-message">请稍候</small></div></div>
+<main>
+  <section id="status" class="status" role="status" aria-live="polite" hidden><strong id="status-title"></strong><p id="status-message"></p></section>
+  <section id="binding-section" class="card" hidden>
+    <h2>配对网关</h2>
+    <form id="binding">
+      <label>请输入配对码<input id="pairing-code" name="pairing_code" required minlength="19" maxlength="19" pattern="[A-F0-9]{4}(-[A-F0-9]{4}){3}" placeholder="XXXX-XXXX-XXXX-XXXX" autocomplete="off" autocapitalize="characters" spellcheck="false"></label>
+      <button id="retry">保存</button>
+    </form>
+  </section>
+  <button id="edit-network" class="secondary" hidden>修改网络配置</button>
+  <form id="setup" class="card">
+    <div class="section-heading"><h2 id="wifi-scan-heading" aria-live="polite">正在扫描中...</h2><p class="wifi-band">仅支持 2.4 GHz 网络。</p><button type="button" id="wifi-scan" class="secondary scan-button" aria-label="刷新附近 WiFi" title="刷新附近 WiFi"><span id="wifi-scan-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5M5.2 8a7 7 0 0 1 11.6-2L20 9M4 15l3.2 3A7 7 0 0 0 18.8 16" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span id="wifi-scan-countdown" aria-hidden="true" hidden></span></button></div>
+    <select id="wifi-networks" name="ssid" hidden><option value="">请选择扫描到的网络</option></select>
+    <div id="wifi-list" class="wifi-list" role="radiogroup" aria-label="附近 Wi-Fi"><div class="wifi-empty"><span class="spinner" aria-hidden="true"></span></div></div>
+    <input name="wifi_auth" type="hidden" value="-1">
+    <label id="wifi-password-label" hidden>Wi-Fi 密码<input name="password" type="password" minlength="8" maxlength="64" autocomplete="new-password"></label>
+    <input name="broker" type="hidden" value="mqtts://YOUR_SERVER_HOST:8883">
+    <div class="card-footer"><button id="save">连接网络</button></div>
+</form>
+  <p id="identity">MAC：</p>
+</main>
+<script>
+const views = {
+  not_configured: ['等待配网', '请先填写 Wi-Fi 名称和密码，联网成功后再填写配对码。'],
+  awaiting_pairing: ['网络已连接，请填写配对码', '请填写后台生成的一次性配对码，完成网关绑定。'],
+  connecting_wifi: ['正在连接 Wi-Fi', '请保持连接设备热点，正在等待路由器分配地址。'],
+  wifi_failed: ['Wi-Fi 尚未连接', '请检查 Wi-Fi 名称、密码和 2.4 GHz 网络，并核对密码。'],
+  syncing_time: ['正在校准时间', 'Wi-Fi 已连接，正在校准时间。'],
+  time_sync_failed: ['时间同步失败', 'Wi-Fi 已连接，但网关暂未从时间服务器获得有效时间。网关仍会自动重试；请确认路由器可访问互联网、DNS 正常且允许 NTP（UDP 123），校时成功后会自动继续。'],
+  enrolling_credentials: ['正在验证配对码', '正在请求服务器验证配对码并配置连接凭据。'],
+  enrollment_unavailable: ['服务器接入暂不可用', 'Wi-Fi 已连接，但服务器尚未完成接入。网关会自动重试，也可稍后重新提交配对码。'],
+  enrollment_network_error: ['无法连接接入服务', 'Wi-Fi 已连接，但尚未建立到服务器的安全连接。请检查该 Wi-Fi 的互联网访问和网络拦截设置；网关会自动重试。'],
+  connecting_mqtt: ['正在连接服务器', '正在连接 MQTT，请稍候。'],
+  waiting_server: ['正在配对', '正在等待后台完成配对和注册。'],
+  waiting_config: ['正在同步配置', '正在接收并保存后台配置。'],
+  pairing_invalid: ['配对码无效', '请复制后台最新生成的完整配对码。'],
+  pairing_expired: ['配对码已过期', '请在后台重新生成配对码。'],
+  pairing_used: ['配对码已被使用', '请为当前设备生成新的配对码。'],
+  key_mismatch: ['需要重新配对', '请在后台重新生成配对码后重试。'],
+  gateway_not_found: ['需要重新配对', '请在后台为当前网关生成配对码。'],
+  device_already_bound: ['设备已有网关记录', '请在后台重新生成配对码后重试。'],
+  wrong_device: ['配对码不适用于此设备', '恢复配对码只适用于原网关，更换硬件请在后台生成转移码。'],
+  version_unsupported: ['固件版本不受支持', '请升级网关固件后重新配对。'],
+  sync_unavailable: ['暂时无法同步配置', '后台暂时不可用，设备会自动重试。'],
+  config_failed: ['配置同步失败', '设备未能保存后台配置，请稍后重试。'],
+  server_timeout: ['后台尚未返回绑定结果', '设备会继续重试，请稍候。'],
+  config_timeout: ['配置同步尚未完成', '请确认后台服务正常运行后重试。'],
+  bound: ['绑定成功，网关已上线', '可以切回正常网络管理设备。']
+};
+const busyStates = new Set(['connecting_wifi','syncing_time','enrolling_credentials','connecting_mqtt','waiting_server','waiting_config']);
+const errorStates = new Set(['wifi_failed','time_sync_failed','pairing_invalid','pairing_expired','pairing_used','key_mismatch','gateway_not_found','device_already_bound','wrong_device','version_unsupported','sync_unavailable','config_failed','server_timeout','config_timeout','enrollment_unavailable','enrollment_network_error']);
+const setup = document.getElementById('setup');
+const bindingSection = document.getElementById('binding-section');
+const loading = document.getElementById('page-loading');
+let initialized = false, editingNetwork = false, operation = '', operationStartedAt = 0, polling = false, wifiPolling = false, submissionPending = false, failures = 0, wifiSuccessUntil = 0;
+let operationRevision = 0, wifiScanAvailableAt = 0, wifiFailure = null;
+let pairingFailure = null;
+let initialInfoReady = false, initialWifiReady = false;
+let wifiScanError = '';
+let wifiScanDeadline = 0;
+let apCloseDeadline = null;
+function updateApCountdown() {
+  if (apCloseDeadline === null) return;
+  const remaining = Math.max(0, Math.ceil((apCloseDeadline - Date.now()) / 1000));
+  showNotice(views.bound[0], remaining ? `${remaining}s 后自动关闭热点，请切回正常网络管理设备。` : '正在关闭热点，请切回正常网络管理设备。');
+}
+async function request(path, options = {}) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+  try { const response = await fetch(path, {...options, signal: controller.signal}); const data = await response.json(); return {response, data}; }
+  finally { clearTimeout(timeout); }
+}
+function setLoading(title, message) {
+  document.getElementById('loading-title').textContent = title || '正在处理';
+  document.getElementById('loading-message').textContent = message || '请稍候';
+  loading.hidden = false;
+}
+function finishInitialLoading() { if (initialInfoReady && initialWifiReady && !operation) loading.hidden = true; }
+function showStatus(code) {
+  const waiting = busyStates.has(code);
+  const view = views[code] || views.not_configured;
+  const status = document.getElementById('status');
+  if (waiting) {
+    status.hidden = true;
+    setup.hidden = true;
+    bindingSection.hidden = true;
+    document.getElementById('edit-network').hidden = true;
+    setLoading(view[0], view[1]);
+    return;
+  }
+  if (!operation) finishInitialLoading();
+  if (code === 'not_configured' && !setup.hidden) { showScanNotice(); return; }
+  status.hidden = code === 'not_configured';
+  document.getElementById('status-title').textContent = view[0];
+  document.getElementById('status-message').textContent = view[1];
+  status.className = 'status' + (code === 'bound' ? ' success' : errorStates.has(code) ? ' error' : '');
+}
+function showNotice(title, message, failed = false) {
+  if (!operation) loading.hidden = true;
+  const status = document.getElementById('status');
+  status.hidden = false;
+  document.getElementById('status-title').textContent = title;
+  document.getElementById('status-message').textContent = message;
+  status.className = 'status' + (failed ? ' error' : ' success');
+}
+function showScanNotice() {
+  if (!initialInfoReady || !initialWifiReady || setup.hidden || operation || wifiFailure || pairingFailure || wifiSuccessUntil > Date.now()) return;
+  if (wifiScanError) showNotice('扫描失败', wifiScanError, true);
+  else {
+    showNotice('配网提示', '列表显示信号强度和有无密码；隐藏网络需先开启 SSID 广播。服务器地址自动配置。');
+    document.getElementById('status').className = 'status';
+  }
+}
+function setScanState(state, count = 0, message = '') {
+  document.getElementById('wifi-scan-heading').textContent = state === 'scanning' ? '正在扫描中...' : state === 'failed' ? '扫描失败' : `发现 ${count} 个网络：`;
+  wifiScanError = state === 'failed' ? message || '无法获取附近网络，请稍后刷新重试。' : '';
+  showScanNotice();
+}
+function setOperation(value) {
+  operationRevision++;
+  operation = value;
+  operationStartedAt = value ? Date.now() : 0;
+  if (value) {
+    apCloseDeadline = null;
+    wifiSuccessUntil = 0;
+    wifiFailure = null;
+    pairingFailure = null;
+    setup.hidden = true;
+    bindingSection.hidden = true;
+    document.getElementById('edit-network').hidden = true;
+    document.getElementById('status').hidden = true;
+    setLoading(value === 'wifi' ? views.connecting_wifi[0] : views.waiting_server[0], value === 'wifi' ? views.connecting_wifi[1] : views.waiting_server[1]);
+  } else {
+    finishInitialLoading();
+  }
+}
+function chooseWifi() {
+  const select = document.getElementById('wifi-networks');
+  const option = select.selectedOptions && select.selectedOptions[0];
+  const secured = Boolean(option && option.dataset.secured === 'true');
+  setup.elements.wifi_auth.value = option ? option.dataset.auth : '-1';
+  setup.elements.password.required = secured;
+  setup.elements.password.disabled = !secured;
+  document.getElementById('wifi-password-label').hidden = !secured;
+  if (!secured) setup.elements.password.value = '';
+  for (const card of document.getElementById('wifi-list').children) if (card.setAttribute) card.setAttribute('aria-checked', String(card.dataset.ssid === select.value && card.dataset.auth === setup.elements.wifi_auth.value));
+}
+function renderWifi(networks) {
+  const select = document.getElementById('wifi-networks');
+  const previous = select.value || '';
+  const previousAuth = setup.elements.wifi_auth.value;
+  const placeholder = document.createElement('option'); placeholder.value = ''; placeholder.textContent = '请选择扫描到的网络';
+  select.replaceChildren(placeholder);
+  const cards = document.getElementById('wifi-list'); cards.replaceChildren();
+  for (const network of networks) {
+    const option = document.createElement('option'); option.value = network.ssid; option.textContent = `${network.ssid} (${network.rssi} dBm)`; option.dataset.secured = String(network.secured); option.dataset.auth = String(network.auth); option.disabled = !network.supported; select.append(option);
+    const card = document.createElement('button');
+    card.type = 'button'; card.className = 'wifi-option'; card.setAttribute('role', 'radio'); card.setAttribute('aria-checked', 'false');
+    card.disabled = !network.supported; card.dataset.ssid = network.ssid; card.dataset.auth = String(network.auth);
+    const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    icon.classList.add('wifi-icon'); icon.setAttribute('viewBox', '0 0 24 24'); icon.setAttribute('aria-hidden', 'true');
+    icon.innerHTML = '<path d="M3 9.5a15 15 0 0 1 18 0M6.5 13a9.5 9.5 0 0 1 11 0M10 16.5a4.5 4.5 0 0 1 4 0M12 20h.01"/>';
+    const body = document.createElement('span'); body.className = 'wifi-body';
+    const name = document.createElement('span'); name.className = 'wifi-name'; name.textContent = network.ssid || '隐藏网络';
+    const meta = document.createElement('span'); meta.className = 'wifi-meta'; meta.textContent = `${network.rssi} dBm`;
+    if (network.seen_in_scan === false) meta.textContent += ` · ${Math.max(0, Number(network.age_seconds) || 0)} 秒前发现`;
+    body.append(name, meta);
+    const security = document.createElement('span'); security.className = 'wifi-security'; security.textContent = network.secured ? '有密码' : '开放';
+    const check = document.createElement('span'); check.className = 'wifi-check'; check.setAttribute('aria-hidden', 'true');
+    card.append(icon, body, security, check);
+    card.onclick = () => { option.selected = true; chooseWifi(); }; cards.append(card);
+    if (network.ssid === previous && String(network.auth) === previousAuth) option.selected = true;
+  }
+  if (!networks.length) { const empty = document.createElement('div'); empty.className = 'wifi-empty'; empty.textContent = '没有找到 Wi-Fi，请点击刷新重试。'; cards.append(empty); }
+  chooseWifi(); setScanState('complete', networks.length);
+}
+async function pollWifi() {
+  try {
+    for (;;) {
+      if (Date.now() >= wifiScanDeadline) throw new Error('Wi-Fi 扫描超时，请稍后刷新重试。');
+      const {response, data} = await request('/api/wifi/scan', {cache: 'no-store'});
+      if (Date.now() >= wifiScanDeadline) throw new Error('Wi-Fi 扫描超时，请稍后刷新重试。');
+      if (!response.ok || data.ok === false) throw new Error(data.msg || 'Wi-Fi 扫描失败');
+      if (!data.scanning) { renderWifi(data.networks || []); break; }
+      await new Promise(resolve => setTimeout(resolve, 800));
+    }
+  } catch (error) { setScanState('failed', 0, error.message); }
+  wifiPolling = false; initialWifiReady = true; finishInitialLoading(); showScanNotice(); updateScanButton();
+}
+function updateScanButton() {
+  const button = document.getElementById('wifi-scan');
+  const remaining = Math.max(0, Math.ceil((wifiScanAvailableAt - Date.now()) / 1000));
+  button.disabled = wifiPolling || Boolean(operation) || submissionPending || remaining > 0;
+  document.getElementById('wifi-scan-icon').hidden = remaining > 0;
+  const countdown = document.getElementById('wifi-scan-countdown');
+  countdown.hidden = remaining === 0; countdown.textContent = remaining ? String(remaining) : '';
+  button.title = remaining ? `${remaining} 秒后可刷新` : wifiPolling ? '正在扫描附近 WiFi' : '刷新附近 WiFi';
+  button.setAttribute('aria-label', button.title);
+}
+async function startWifiScan() {
+  if (wifiPolling || operation || submissionPending || Date.now() < wifiScanAvailableAt) return;
+  wifiPolling = true; wifiScanDeadline = Date.now() + 20000; wifiScanAvailableAt = Date.now() + 10000; updateScanButton(); setScanState('scanning');
+  try { const {response, data} = await request('/api/wifi/scan', {method: 'POST'}); if (!response.ok || data.ok === false) throw new Error(data.msg || '无法开始扫描，请稍后重试'); await pollWifi(); } catch (error) { setScanState('failed', 0, error.message); wifiPolling = false; initialWifiReady = true; finishInitialLoading(); updateScanButton(); }
+}
+async function loadInitialWifi() {
+  try { const {response, data} = await request('/api/wifi/scan', {cache: 'no-store'}); if (!response.ok || data.ok === false) throw new Error(data.msg || '无法读取 Wi-Fi 扫描结果'); if (data.scanning) { wifiPolling = true; wifiScanDeadline = Date.now() + 20000; setScanState('scanning'); updateScanButton(); await pollWifi(); return; } renderWifi(data.networks || []); } catch (error) { setScanState('failed', 0, error.message); } finally { initialWifiReady = true; finishInitialLoading(); showScanNotice(); }
+}
+function checkOperationTimeout() {
+  if (!operation || Date.now() - operationStartedAt < (operation === 'wifi' ? 25000 : 120000)) return false;
+  const timedOutOperation = operation;
+  setOperation('');
+  submissionPending = false;
+  document.getElementById('save').disabled = false;
+  document.getElementById('retry').disabled = false;
+  setup.hidden = timedOutOperation !== 'wifi';
+  bindingSection.hidden = timedOutOperation === 'wifi';
+  const title = timedOutOperation === 'wifi' ? '尚未确认 Wi-Fi 连接结果' : '尚未收到网关配对结果';
+  const message = timedOutOperation === 'wifi' ? '25 秒内未收到连接成功结果。请确认仍连接网关热点，检查网络名称、密码和 2.4 GHz 网络后重试。' : '两分钟内未收到网关状态更新。请保持热点连接并检查网关网络；校时或网络恢复后，网关会继续配对。';
+  if (timedOutOperation === 'wifi') wifiFailure = [title, message];
+  else pairingFailure = [title, message];
+  showNotice(title, message, true);
+  return true;
+}
+async function refreshStatus() {
+  if (checkOperationTimeout()) return;
+  if (polling) return; polling = true;
+  const revision = operationRevision;
+  try {
+    const {response, data} = await request('/api/info', {cache: 'no-store'}); if (!response.ok) throw new Error('读取状态失败');
+    if (revision !== operationRevision || submissionPending) return;
+    failures = 0; const mac = String(data.mac || '').replace(/[^\da-f]/gi, '').match(/.{1,2}/g)?.join(':').toUpperCase() || ''; document.getElementById('identity').textContent = `MAC：${mac}`; initialInfoReady = true; finishInitialLoading();
+    if (!initialized) { if (data.ssid) setup.elements.ssid.value = data.ssid; setup.elements.broker.value = 'mqtts://YOUR_SERVER_HOST:8883'; initialized = true; }
+    const networkReady = Boolean(data.configured && data.wifi_connected);
+    const boundReady = Boolean(data.bound && networkReady);
+    apCloseDeadline = boundReady && Number.isFinite(data.ap_close_seconds) && data.ap_close_seconds >= 0 ? Date.now() + data.ap_close_seconds * 1000 : null;
+    let status = data.bound ? 'bound' : (errorStates.has(data.binding_status) ? data.binding_status : data.binding_status || (networkReady ? 'awaiting_pairing' : 'not_configured'));
+    if (!data.bound && status === 'bound') status = networkReady ? 'awaiting_pairing' : 'not_configured';
+    const reconnectStopped = data.wifi_retry_paused === true ||
+      (data.wifi_connection_state === 'idle' && Number(data.wifi_disconnect_reason || 0) > 0);
+    if (!networkReady && (status === 'wifi_failed' || data.wifi_connection_state === 'failed' || reconnectStopped)) {
+      if (operation === 'wifi') setOperation('');
+      const reason = Number(data.wifi_disconnect_reason || 0);
+      const timedOut = data.wifi_connection_timed_out === true;
+      const title = timedOut ? 'Wi-Fi 连接超时' : reason === 36 ? 'Wi-Fi 连接已中断' : 'Wi-Fi 连接失败';
+      const detail = timedOut ? '20 秒内未能完成网络连接。请确认网络仍在广播、信号稳定后重试。' : reason === 201 ? '没有找到该 Wi-Fi，请检查网络是否开启、信号和 2.4 GHz 频段。' : [15,202,204].includes(reason) ? '认证或握手失败，请核对密码及路由器安全设置。' : reason === 36 ? '无线连接已结束，请稍后重试；此错误本身不能判断为密码错误。' : '未能连接路由器，请检查网络名称、密码、信号和 2.4 GHz 网络。';
+      wifiFailure = [title, detail + (reason && !timedOut ? `（错误代码 ${reason}）` : '')];
+    }
+    if (wifiFailure && !networkReady) { setup.hidden = false; bindingSection.hidden = true; document.getElementById('edit-network').hidden = true; showNotice(...wifiFailure, true); return; }
+    if (networkReady) wifiFailure = null;
+    if (!networkReady && !operation && status === 'connecting_wifi') setOperation('wifi');
+    if (networkReady && !data.bound && data.has_pairing_credential === false) status = 'awaiting_pairing';
+    if (networkReady && operation === 'wifi') { setOperation(''); wifiSuccessUntil = Date.now() + 8000; }
+    else if (operation === 'wifi' && status === 'wifi_failed') setOperation('');
+    else if (operation === 'pairing' && errorStates.has(status)) setOperation('');
+    if (data.bound && networkReady) { editingNetwork = false; if (operation) setOperation(''); }
+    if (data.bound && networkReady) pairingFailure = null;
+    if (networkReady && !data.bound && errorStates.has(status)) pairingFailure = views[status];
+    if (pairingFailure === views.time_sync_failed && data.clock_valid === true) pairingFailure = null;
+    if (networkReady && !data.bound && pairingFailure && operation !== 'wifi') {
+      if (operation === 'pairing') setOperation('');
+      setup.hidden = !editingNetwork; bindingSection.hidden = editingNetwork;
+      document.getElementById('edit-network').hidden = false;
+      showNotice(...pairingFailure, true); return;
+    }
+    if (networkReady && !data.bound && !editingNetwork && !operation && !pairingFailure &&
+        wifiSuccessUntil <= Date.now() && busyStates.has(status)) setOperation('pairing');
+    const operationStatus = operation === 'wifi' ? 'connecting_wifi' : operation === 'pairing' ? (busyStates.has(status) ? status : 'waiting_server') : '';
+    const busyStatus = operationStatus || (wifiSuccessUntil > Date.now() ? '' : busyStates.has(status) ? status : '');
+    const busy = Boolean(busyStatus);
+    if (busy) {
+      setup.hidden = true;
+      bindingSection.hidden = true;
+      document.getElementById('edit-network').hidden = true;
+      showStatus(busyStatus);
+    } else {
+      setup.hidden = Boolean(data.bound) || (!editingNetwork && networkReady);
+      bindingSection.hidden = !networkReady || Boolean(data.bound) || editingNetwork;
+      document.getElementById('edit-network').hidden = !networkReady || Boolean(data.bound);
+      if (boundReady) { showStatus('bound'); updateApCountdown(); }
+      else if (operation !== 'wifi' && wifiSuccessUntil > Date.now()) showNotice('Wi-Fi 连接成功', `已连接到「${data.ssid || '所选网络'}」，网关已获取网络地址。`);
+      else showStatus(editingNetwork ? 'not_configured' : status);
+      if (status === 'wifi_failed') setup.hidden = false;
+    }
+  } catch (error) {
+    if (revision !== operationRevision) return;
+    if (apCloseDeadline !== null && !operation) { updateApCountdown(); return; }
+    if (operation) { setLoading(operation === 'wifi' ? '正在连接 Wi-Fi' : '正在配对', '设备连接暂时中断，正在重新读取结果，请保持连接网关热点。'); return; }
+    if (++failures >= 2) {
+      const failedOperation = operation;
+      setOperation('');
+      if (failedOperation === 'wifi') { setup.hidden = false; bindingSection.hidden = true; }
+      else if (failedOperation === 'pairing') { setup.hidden = true; bindingSection.hidden = false; }
+      showNotice('暂时无法连接设备', '设备可能正在切换 Wi-Fi 或服务器连接已中断，请重新检查后重试。', true);
+    }
+  } finally { polling = false; }
+}
+async function submit(form, path, button) {
+  if (button.disabled || operation || submissionPending) return; submissionPending = true; setOperation(path === '/api/setup' ? 'wifi' : 'pairing'); button.disabled = true;
+  const revision = operationRevision;
+  try {
+    const payload = Object.fromEntries(new FormData(form)); if (path === '/api/setup') payload.wifi_auth = Number(payload.wifi_auth); if (payload.pairing_code) payload.pairing_code = payload.pairing_code.replace(/[\s-]/g, '').toUpperCase();
+    const {response, data} = await request(path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)});
+    if (revision !== operationRevision) return;
+    if (!response.ok || !data.ok) throw new Error(data.msg || '保存失败');
+    setLoading(path === '/api/setup' ? views.connecting_wifi[0] : views.waiting_server[0], path === '/api/setup' ? views.connecting_wifi[1] : views.waiting_server[1]);
+  } catch (error) {
+    if (revision !== operationRevision) return;
+    setOperation('');
+    setup.hidden = path !== '/api/setup'; bindingSection.hidden = path === '/api/setup';
+    showNotice('提交失败', `保存失败：${error.message}`, true);
+  } finally { if (revision === operationRevision || !operation) { submissionPending = false; button.disabled = false; } }
+}
+function formatPairingCode(event) {
+  if (event.isComposing) return;
+  const input = event.target, original = input.value, cursor = input.selectionStart ?? original.length;
+  const before = original.slice(0, cursor).replace(/[^0-9a-f]/gi, '').slice(0, 16).length;
+  const raw = original.replace(/[^0-9a-f]/gi, '').slice(0, 16).toUpperCase();
+  let formatted = (raw.match(/.{1,4}/g) || []).join('-');
+  if (!String(event.inputType || '').startsWith('delete') && cursor === original.length && raw.length && raw.length < 16 && raw.length % 4 === 0) formatted += '-';
+  let position = before + Math.floor(Math.max(0, before - 1) / 4);
+  if (cursor === original.length) position = formatted.length;
+  else if (original[cursor - 1] === '-' && before % 4 === 0) position++;
+  input.value = formatted; position = Math.min(position, formatted.length);
+  input.setSelectionRange(position, position);
+}
+document.getElementById('pairing-code').oninput = formatPairingCode;
+document.getElementById('wifi-scan').onclick = startWifiScan;
+document.getElementById('wifi-networks').onchange = chooseWifi;
+setup.onsubmit = event => { event.preventDefault(); if (!setup.elements.ssid.value) return showNotice('请选择 Wi-Fi', '请选择一个扫描到的网络后继续。', true); submit(setup, '/api/setup', document.getElementById('save')); };
+document.getElementById('binding').onsubmit = event => { event.preventDefault(); submit(event.target, '/api/binding', document.getElementById('retry')); };
+document.getElementById('edit-network').onclick = () => { if (operation || submissionPending) return; wifiSuccessUntil = 0; editingNetwork = !editingNetwork; setup.hidden = !editingNetwork; bindingSection.hidden = editingNetwork; };
+function resumeStatus() { if (!checkOperationTimeout()) refreshStatus(); }
+window.addEventListener('pageshow', resumeStatus);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) resumeStatus(); });
+refreshStatus(); loadInitialWifi(); setInterval(refreshStatus, 1000); setInterval(checkOperationTimeout, 250); setInterval(updateScanButton, 1000); setInterval(updateApCountdown, 250);
+</script>
+</body>
+</html>

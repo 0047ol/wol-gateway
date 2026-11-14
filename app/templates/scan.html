@@ -1,0 +1,725 @@
+{% from "_gateway_info.html" import gateway_info %}
+{% extends "base.html" %}
+{% from "_controls.html" import action_icon %}
+{% block title %}扫描局域网设备{% endblock %}
+{% block content %}
+  <div class="page-heading">
+    <div class="page-title-wrap">
+      <div class="page-title">
+        <a href="/gateway/{{ gw.public_id }}/devices"
+           class="back-icon"
+           aria-label="关闭扫描"
+           title="关闭扫描">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M19 12H5m7 7-7-7 7-7" />
+          </svg>
+        </a>
+        <h1 title="{{ gateway_info(gw) }}">扫描局域网设备</h1>
+      </div>
+      {% if gw.ip %}<p class="page-description"
+   title="{{ gateway_info(gw) }}"><span data-no-i18n>{{ gw.ip }}</span></p>{% endif %}
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="section-heading list-heading">
+      <h2><span id="scan-heading-state"
+      role="status"
+      aria-live="polite">扫描结果</span> <span id="scan-count" class="count-pill">0</span></h2>
+      <form id="scan-search-form"
+            class="search-form list-search-form"
+            onsubmit="event.preventDefault(); searchScanResults()"
+            hidden>
+        <input id="scan-search"
+               placeholder="搜索结果：IP / MAC / 名称"
+               aria-label="搜索本次扫描结果"
+               disabled /><span class="search-field-icon" aria-hidden="true">{{ action_icon("搜索") }}</span>
+      </form>
+    </div>
+    <div class="card-toolbar list-toolbar">
+      <div class="toolbar-bulk">
+
+        <button type="button"
+                id="scan-add"
+                onclick="addSelected()"
+                class="outline icon-button"
+                title="添加"
+                aria-label="添加"
+                disabled
+                hidden>{{ action_icon("添加") }}</button>
+      </div>
+
+      <span id="scan-selection-count"
+            class="selection-count"
+            role="status"
+            aria-live="polite"
+            hidden></span>
+    </div>
+    <div class="table-scroll scan-table-scroll"
+         id="scan-table-scroll"
+         tabindex="0"
+         aria-label="扫描结果">
+      <table id="scan-table" class="management-list">
+        <thead>
+          <tr>
+            <th>
+              <input id="scan-select-page"
+                     type="checkbox"
+                     aria-label="全选本页"
+                     onchange="selectScanPage(this.checked)" />
+            </th>
+            <th data-sort-key="id">ID</th>
+            <th data-sort-key="ip">IP</th>
+            <th data-sort-key="mac">MAC</th>
+            <th data-sort-key="device_name">自定义名称</th>
+            <th data-sort-key="created_at">发现时间</th>
+          </tr>
+        </thead>
+        <tbody id="scan-tbody">
+          <tr class="scan-empty">
+            <td colspan="6">打开扫描工具后会自动扫描</td>
+          </tr>
+        </tbody>
+        <tfoot>
+          <tr id="scan-loading-row" hidden>
+            <td colspan="6" class="scan-loading-cell"><span class="scan-loading-status" role="status" aria-live="polite"><span class="scan-loading-spinner" aria-hidden="true"></span><span>正在扫描…</span></span></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+    <div id="scan-pagination" class="scroll-sentinel" hidden>继续下滑加载</div>
+  </div>
+{% endblock %}
+{% block script %}
+  <script data-page-script>
+    /* page-scope:start */
+    WolPage.mount(({
+      window,
+      globalThis,
+      document,
+      fetch,
+      history,
+      setInterval,
+      clearInterval,
+      setTimeout,
+      clearTimeout,
+      showToast,
+      postForm,
+      uiConfirm,
+      uiAlert,
+      expose,
+      live
+    }) => {
+
+      let lastScanStatus = '';
+      let scanDiscoveredTotal = 0,
+        scanAlreadyAddedTotal = 0;
+      let lastScanFailed = false;
+      let activeScanId = '';
+      let scanGeneration = 0;
+      let scanInProgress = false;
+      globalThis.scanInProgress = false;
+      globalThis.scanAbortRequested = false;
+      let scanSearchTimer;
+      let scanListRequest = 0;
+      const selectedScanIds = new Set();
+      const scanNames = {};
+      const scanHosts = new Map();
+      let scanResultTotal = 0;
+      let scanAdding = false;
+      let scanFailed = false;
+      const returnURL = '/gateway/{{ gw.public_id }}/devices';
+      const gatewayId = '{{ gw.public_id }}';
+      window.WolSync.remember('gateway:' + gatewayId, {{ gw.edit_revision|tojson }});
+      globalThis.scanStopPromise = window.WolScans.pending(gatewayId);
+      globalThis.stopPreviousScan = (id, startRequest = null) => window.WolScans.stop(gatewayId, id, startRequest);
+      globalThis.scanStopRetry = () => window.WolScans.retry(gatewayId);
+
+      function leaveScanPage() {
+        return window.WolPage.navigate(returnURL, {
+          fresh: true
+        });
+      }
+
+      async function waitForScanStop(promise) {
+        let timer;
+        try {
+          return await Promise.race([promise, new Promise((_, reject) => {
+            timer = setTimeout(() => reject(new Error('等待上次扫描停止超时，请刷新页面后重试')), 15000);
+          })]);
+        } finally {
+          clearTimeout(timer);
+        }
+      }
+
+      async function scanRequest(url, options = {}) {
+        const controller = new AbortController();
+        let timer;
+        const message = '扫描请求超时，请检查网络后重试';
+        const timeout = new Promise((_, reject) => {
+          timer = window.WolScans.setTimeout(() => {
+            controller.abort();
+            reject(new Error(message));
+          }, 10000);
+        });
+        try {
+          return await Promise.race([(async () => {
+            const response = await (url.endsWith('/scan/trigger') ? window.fetch : fetch)(url, {
+              ...options,
+              signal: controller.signal
+            });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.msg || '无法读取扫描状态，请稍后重试');
+            return result;
+          })(), timeout]);
+        } catch (error) {
+          if (controller.signal.aborted) throw new Error(message);
+          throw error;
+        } finally {
+          window.WolScans.clearTimeout(timer);
+        }
+      }
+
+      function showScanStatus(message, failed = false, completed = false) {
+        scanFailed = failed;
+        if ((failed || completed) && (message !== lastScanStatus || failed !== lastScanFailed)) {
+          showToast(message, {
+            error: failed,
+            success: completed && !failed,
+            duration: failed ? 8000 : 3600
+          });
+        }
+        lastScanStatus = message;
+        lastScanFailed = failed;
+        updateScanEmptyState();
+      }
+
+      function updateScanEmptyState() {
+        document.getElementById('scan-heading-state').textContent = t(scanInProgress ? '正在扫描中...' : scanFailed ? '扫描失败' : globalThis.scanAbortRequested ? '扫描已停止' : activeScanId ? '扫描完成' : '扫描结果');
+        const empty = document.getElementById('scan-tbody').querySelector('.scan-empty');
+        window.setAnimatedHidden?.(document.getElementById('scan-loading-row'), !scanInProgress);
+        if (empty) {
+          window.setAnimatedHidden?.(empty, scanInProgress);
+          empty.querySelector('td').textContent = t(scanFailed ? '未获取到可添加的设备，请稍后重试。' : '本次扫描没有未添加且符合条件的设备');
+        }
+      }
+
+      function updateScanControls() {
+        updateScanEmptyState();
+        const selection = document.getElementById('scan-selection-count');
+        window.setAnimatedHidden?.(selection, !selectedScanIds.size);
+        selection.textContent = t(`已选择 ${selectedScanIds.size} 项`);
+        setSearchAvailable('scan-search-form', scanResultTotal > 0);
+        if (scanInProgress) document.querySelectorAll('#scan-search-form input, #scan-search-form button').forEach(control => {
+          control.disabled = true;
+        });
+        const button = document.getElementById('scan-add');
+        const available = Boolean(selectedScanIds.size && (scanResultTotal || document.getElementById('scan-search').value));
+        window.setAnimatedHidden?.(button, !available);
+        button.disabled = !available;
+        if (scanAdding) button.disabled = true;
+      }
+
+      async function addSelected() {
+        if (scanAdding) return;
+        saveScanPageDrafts();
+        const ids = [...selectedScanIds];
+        if (!ids.length) {
+          showToast('请先勾选扫描结果', {
+            error: true
+          });
+          return;
+        }
+        scanAdding = true;
+        globalThis.scanAdding = true;
+        document.getElementById('scan-add').disabled = true;
+        const generation = scanGeneration;
+        try {
+          const message = t(`确认添加选中的 ${ids.length} 台设备？`) + (scanInProgress ? '\n' + t('扫描仍在进行，确认后将停止扫描并添加选中设备。') : '') + '\n' + t('添加完成后将退出扫描界面。');
+          const targets = ids.map(id => {
+            const host = scanHosts.get(String(id)) || {};
+            return [scanNames[id] || host.device_name || t('未命名设备'), formatMac(host.mac || ''), host.ip].filter(Boolean).join(' · ');
+          });
+          if (!await uiConfirm(message, {
+              title: '添加设备',
+              skipCountdown: true,
+              confirmText: '添加',
+              targets
+            })) return;
+          if (generation !== scanGeneration || globalThis.scanAbortRequested) return;
+          const fd = new FormData();
+          fd.append('ids', ids.join(','));
+          fd.append('names', JSON.stringify(scanNames));
+          const res = await fetch('/gateway/{{ gw.public_id }}/scan/add', {
+            method: 'POST',
+            body: fd
+          });
+          const result = await res.json();
+          if (result.ok && result.added) {
+            if (scanInProgress) {
+              globalThis.stopPreviousScan?.(activeScanId, globalThis.scanStartRequest)
+                .catch(error => window.showToast(t('退出扫描失败，设备可能仍在扫描：') + error.message, {
+                  error: true
+                }));
+            }
+            cancelActiveScan();
+            showToast(result.pushed_to_gateway ? '设备已添加' : '设备已添加；网关上线后同步', {
+              success: true
+            });
+            if (result.skipped?.length) showToast(result.skipped.join('；'), {
+              error: true
+            });
+            globalThis.scanAdding = false;
+            await leaveScanPage();
+          } else if (result.ok) showToast(result.skipped?.join('；') || '没有添加设备', {
+            error: true
+          });
+          else showToast(result.msg || '添加失败', {
+            error: true
+          });
+        } catch (e) {
+          showToast('请求失败：' + e.message, {
+            error: true
+          });
+        } finally {
+          scanAdding = false;
+          globalThis.scanAdding = false;
+          if (live()) updateScanControls();
+        }
+      }
+
+      function createScanRow(host) {
+        const row = document.createElement('tr');
+        const values = [host.id, host.ip, host.mac, host.device_name || '', host.created_at];
+        const check = document.createElement('input');
+        check.type = 'checkbox';
+        check.className = 'scan-check';
+        check.value = host.id;
+        check.checked = selectedScanIds.has(String(host.id));
+        check.addEventListener('change', () => {
+          if (check.checked) selectedScanIds.add(String(host.id));
+          else selectedScanIds.delete(String(host.id));
+          updateScanControls();
+        });
+        const first = document.createElement('td');
+        first.append(check);
+        row.append(first);
+        values.forEach((value, index) => {
+          const cell = document.createElement('td');
+          if (index === 3) {
+            const input = document.createElement('input');
+            input.className = 'device-name';
+            input.dataset.deviceId = host.id;
+            input.maxLength = 16;
+            input.setAttribute('aria-label', '自定义名称');
+            input.title = '设备名称可选；留空时使用默认名称。名称最多 16 个字符';
+            input.placeholder = '例如：客厅电脑';
+            input.value = scanNames[host.id] ?? value;
+            cell.append(input);
+          } else {
+            cell.textContent = index === 2 ? formatMac(value) : value;
+            if (index === 1 || index === 2 || index === 4) cell.className = 'mono';
+          }
+          row.append(cell);
+        });
+        return row;
+      }
+
+      function renderScanResults(hosts, total) {
+        saveScanPageDrafts();
+        hosts.forEach(host => scanHosts.set(String(host.id), host));
+        const tbody = document.getElementById('scan-tbody');
+        const scroll = document.getElementById('scan-table-scroll');
+        const top = scroll.scrollTop,
+          left = scroll.scrollLeft;
+        const existing = new Map([...tbody.querySelectorAll('tr[data-scan-id]')].map(row => [row.dataset.scanId, row]));
+        const incoming = new Set(hosts.map(host => String(host.id)));
+        for (const row of tbody.querySelectorAll('tr[data-scan-id]'))
+          if (!incoming.has(row.dataset.scanId)) window.removeTableRow?.(row);
+        hosts.forEach((host, index) => {
+          const key = String(host.id);
+          let row = existing.get(key);
+          if (!row) {
+            row = createScanRow(host);
+            row.dataset.scanId = key;
+          }
+          if (tbody.children[index] !== row) tbody.insertBefore(row, tbody.children[index] || null);
+          window.animateTableRow?.(row);
+        });
+        if (!hosts.length) {
+          const empty = tbody.querySelector('.scan-empty');
+          if (!empty) {
+            const row = document.createElement('tr');
+            row.className = 'scan-empty';
+            row.insertCell().colSpan = 6;
+            tbody.append(row);
+            window.animateTableRow?.(row);
+          }
+        } else {
+          const empty = tbody.querySelector('.scan-empty');
+          if (empty) window.removeTableRow?.(empty);
+        }
+        updateScanEmptyState();
+        scroll.scrollTop = top;
+        scroll.scrollLeft = left;
+        document.getElementById('scan-count').textContent = String(total);
+        const checks = [...tbody.querySelectorAll('.scan-check')];
+        const selectAll = document.getElementById('scan-select-page');
+        selectAll.checked = checks.length > 0 && checks.every(box => box.checked);
+        selectAll.indeterminate = checks.some(box => box.checked) && !selectAll.checked;
+        updateScanControls();
+      }
+      async function refreshScan(silent = false) {
+        if (!activeScanId) return false;
+        const generation = scanGeneration,
+          requestId = ++scanListRequest;
+        const task = activeScanId,
+          filter = document.getElementById('scan-search').value || '';
+        const hosts = [];
+        let result, page = 1;
+        try {
+          do {
+            const query = new URLSearchParams({
+              cmd_id: task,
+              q: filter,
+              page: String(page),
+              page_size: '500'
+            });
+            result = await scanRequest('/api/gateway/{{ gw.public_id }}/scan_results?' + query, {
+              cache: 'no-store'
+            });
+            if (generation !== scanGeneration || requestId !== scanListRequest) return false;
+            if (result.gateway && (!result.gateway.online || !result.gateway.can_manage)) {
+              cancelActiveScan();
+              showScanStatus(result.gateway.action_error || '网关离线，扫描已停止等待', true);
+              void leaveScanPage();
+              return false;
+            }
+            hosts.push(...(result.items || []));
+            ++page;
+          } while (page <= (result.total_pages || 1));
+          scanResultTotal = result.unfiltered_total ?? result.total ?? hosts.length;
+          scanDiscoveredTotal = result.discovered_total ?? scanResultTotal;
+          scanAlreadyAddedTotal = result.already_added_total ?? 0;
+          const order = globalThis.WolTables?.options("scan-table") || {
+            sort: "id",
+            direction: "desc"
+          };
+          hosts.sort((a, b) => (globalThis.WolTables?.compare(order.sort === "device_name" ? scanNames[a.id] ?? a.device_name : a[order.sort], order.sort === "device_name" ? scanNames[b.id] ?? b.device_name : b[order.sort], order.sort) || 0) * (order.direction === "asc" ? 1 : -1));
+          renderScanResults(hosts, result.total ?? hosts.length);
+          return true;
+        } catch (error) {
+          if (!silent && generation === scanGeneration && requestId === scanListRequest) showScanStatus(error.message, true);
+          return false;
+        }
+      }
+      document.addEventListener('DOMContentLoaded', () => {
+        globalThis.WolTables?.bind("scan-table", () => {
+          saveScanPageDrafts();
+          return refreshScan(true);
+        });
+      });
+      async function refreshAllScanPages() {
+        return refreshScan(true);
+      }
+
+      function searchScanResults() {
+        if (scanInProgress) return;
+        return refreshScan();
+      }
+      document.getElementById('scan-search')?.addEventListener?.('input', () => {
+        clearTimeout(scanSearchTimer);
+        if (!scanInProgress) scanSearchTimer = setTimeout(searchScanResults, 250);
+      });
+
+      function saveScanPageDrafts() {
+        document.querySelectorAll('.device-name').forEach(input => {
+          scanNames[input.dataset.deviceId] = input.value.trim();
+        });
+        document.querySelectorAll('.scan-check').forEach(check => {
+          if (check.checked) selectedScanIds.add(String(check.value));
+          else selectedScanIds.delete(String(check.value));
+        });
+      }
+
+      function selectScanPage(checked) {
+        document.querySelectorAll('.scan-check').forEach(box => {
+          box.checked = checked;
+          if (checked) selectedScanIds.add(String(box.value));
+          else selectedScanIds.delete(String(box.value));
+        });
+        updateScanControls();
+      }
+
+      function formatMac(value) {
+        const compact = String(value).replace(/[^a-f\d]/gi, '');
+        return compact.length === 12 ? compact.match(/.{2}/g).join(':').toUpperCase() : value;
+      }
+
+      function cancelActiveScan() {
+        ++scanGeneration;
+        ++scanListRequest;
+        scanInProgress = false;
+        globalThis.scanInProgress = false;
+        globalThis.scanAbortRequested = true;
+        updateScanControls();
+      }
+
+      function setScanPlaceholder(message) {
+        const tbody = document.getElementById('scan-tbody');
+        for (const row of [...tbody.children]) window.removeTableRow?.(row);
+        const row = document.createElement('tr');
+        row.className = 'scan-empty';
+        const cell = row.insertCell();
+        cell.colSpan = 6;
+        cell.textContent = t(message);
+        tbody.append(row);
+        window.animateTableRow?.(row);
+      }
+
+      async function triggerScan() {
+        if (scanInProgress) return;
+        globalThis.WolTables?.reset('scan-table');
+        const generation = ++scanGeneration;
+        scanInProgress = true;
+        scanFailed = false;
+        globalThis.scanInProgress = true;
+        globalThis.scanAbortRequested = false;
+        clearTimeout(scanSearchTimer);
+        ++scanListRequest;
+        activeScanId = globalThis.activeScanId = '';
+        globalThis.scanStartRequest = null;
+        scanResultTotal = 0;
+        scanDiscoveredTotal = scanAlreadyAddedTotal = 0;
+        document.getElementById('scan-search').value = '';
+        document.getElementById('scan-count').textContent = '0';
+        window.setAnimatedHidden?.(document.getElementById('scan-pagination'), true);
+        document.getElementById('scan-table-scroll').scrollTop = 0;
+        document.getElementById('scan-select-page').checked = false;
+        document.getElementById('scan-select-page').indeterminate = false;
+        selectedScanIds.clear();
+        scanHosts.clear();
+        setScanPlaceholder('正在清理上次结果并开始扫描…');
+        Object.keys(scanNames).forEach(key => delete scanNames[key]);
+        updateScanControls();
+        showScanStatus('正在向网关发送扫描指令…');
+        try {
+          if (globalThis.scanStopPromise) {
+            showScanStatus('正在等待上次扫描停止…');
+            try {
+              await waitForScanStop(globalThis.scanStopPromise);
+            } catch (error) {
+              if (!globalThis.scanStopRetry) throw error;
+              await waitForScanStop(globalThis.scanStopRetry());
+            }
+            if (generation !== scanGeneration) return;
+          }
+          const startRequest = scanRequest('/gateway/{{ gw.public_id }}/scan/trigger', {
+            method: 'POST'
+          });
+          globalThis.scanStartRequest = startRequest;
+          const command = await startRequest;
+          if (generation !== scanGeneration) {
+            if (command.ok && command.cmd_id && !globalThis.stopPreviousScan) fetch('/gateway/{{ gw.public_id }}/scan/cancel', {
+              method: 'POST',
+              body: new URLSearchParams({
+                cmd_id: command.cmd_id
+              })
+            }).catch(() => {});
+            return;
+          }
+          if (!command.ok) throw new Error(command.msg || '扫描指令发送失败');
+          if (!command.cmd_id) throw new Error('服务器未返回扫描任务编号');
+          activeScanId = command.cmd_id;
+          globalThis.activeScanId = activeScanId;
+          scanInProgress = true;
+          scanResultTotal = 0;
+          document.getElementById('scan-search').value = '';
+          updateScanControls();
+          window.setAnimatedHidden?.(document.getElementById('scan-pagination'), true);
+          document.getElementById('scan-table-scroll').scrollTop = 0;
+          document.getElementById('scan-count').textContent = '0';
+          setScanPlaceholder('扫描进行中，发现设备后会实时显示…');
+          const scanStarted = Date.now();
+          const timeoutSec = command.timeout_sec || 200;
+          showScanStatus(`扫描已开始。网关扫描最多等待 ${timeoutSec} 秒，期间请勿重复点击。`);
+          const deadline = scanStarted + (timeoutSec + 10) * 1000;
+          let refreshTick = 0;
+          while (Date.now() < deadline) {
+            if (generation !== scanGeneration || globalThis.scanAbortRequested) return;
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            if (generation !== scanGeneration) return;
+            const status = await scanRequest(`/gateway/cmd_status/${command.cmd_id}`, {
+              cache: 'no-store'
+            });
+            if (generation !== scanGeneration) return;
+            if (status.status === 'ok') {
+              if (!await refreshAllScanPages() && generation === scanGeneration) throw new Error('无法读取完整扫描结果，请重新打开扫描工具');
+              if (generation === scanGeneration) scanInProgress = false;
+              if (generation === scanGeneration) showScanStatus(scanAlreadyAddedTotal ?
+                `扫描完成：发现 ${scanDiscoveredTotal} 台，已添加 ${scanAlreadyAddedTotal} 台，可添加 ${scanResultTotal} 台。` :
+                `扫描完成，可添加设备：${scanResultTotal} 条。`, false, true);
+              return;
+            }
+            if (['fail', 'timeout', 'unknown'].includes(status.status)) {
+              scanInProgress = false;
+              throw new Error(status.msg || `扫描任务${status.status}`);
+            }
+            if (++refreshTick % 2 === 0) await refreshScan(true);
+            const elapsed = Math.floor((Date.now() - scanStarted) / 1000);
+            if (elapsed > 0 && elapsed % 10 === 0)
+              showScanStatus('扫描进行中，已发现设备会实时显示。');
+          }
+          scanInProgress = false;
+          throw new Error('等待扫描结果超时，可稍后刷新页面查看已收到的结果');
+        } catch (error) {
+          if (generation !== scanGeneration) return;
+          if (activeScanId) globalThis.stopPreviousScan?.(activeScanId).catch(() => {});
+          cancelActiveScan();
+          showScanStatus(t('扫描失败：') + t(error.message), true);
+          void leaveScanPage();
+        } finally {
+          if (generation === scanGeneration) {
+            scanInProgress = false;
+            globalThis.scanInProgress = false;
+            updateScanControls();
+          }
+        }
+      }
+
+      document.addEventListener('DOMContentLoaded', () => {
+        void triggerScan();
+      });
+      document.addEventListener('visibilitychange', () => {
+        if (document.hidden && scanInProgress) saveScanPageDrafts();
+      });
+      /* Page exports used by markup and the shared UI. */
+      expose({
+        get lastScanStatus() {
+          return lastScanStatus;
+        },
+        set lastScanStatus(value) {
+          lastScanStatus = value;
+        },
+        get scanDiscoveredTotal() {
+          return scanDiscoveredTotal;
+        },
+        set scanDiscoveredTotal(value) {
+          scanDiscoveredTotal = value;
+        },
+        get lastScanFailed() {
+          return lastScanFailed;
+        },
+        set lastScanFailed(value) {
+          lastScanFailed = value;
+        },
+        get activeScanId() {
+          return activeScanId;
+        },
+        set activeScanId(value) {
+          activeScanId = value;
+        },
+        get scanGeneration() {
+          return scanGeneration;
+        },
+        set scanGeneration(value) {
+          scanGeneration = value;
+        },
+        get scanInProgress() {
+          return scanInProgress;
+        },
+        set scanInProgress(value) {
+          scanInProgress = value;
+        },
+        get scanSearchTimer() {
+          return scanSearchTimer;
+        },
+        set scanSearchTimer(value) {
+          scanSearchTimer = value;
+        },
+        get scanListRequest() {
+          return scanListRequest;
+        },
+        set scanListRequest(value) {
+          scanListRequest = value;
+        },
+        get selectedScanIds() {
+          return selectedScanIds;
+        },
+        get scanNames() {
+          return scanNames;
+        },
+        get scanHosts() {
+          return scanHosts;
+        },
+        get scanResultTotal() {
+          return scanResultTotal;
+        },
+        set scanResultTotal(value) {
+          scanResultTotal = value;
+        },
+        get scanAdding() {
+          return scanAdding;
+        },
+        set scanAdding(value) {
+          scanAdding = value;
+        },
+        get scanFailed() {
+          return scanFailed;
+        },
+        set scanFailed(value) {
+          scanFailed = value;
+        },
+        get showScanStatus() {
+          return showScanStatus;
+        },
+        get updateScanEmptyState() {
+          return updateScanEmptyState;
+        },
+        get updateScanControls() {
+          return updateScanControls;
+        },
+        get addSelected() {
+          return addSelected;
+        },
+        get createScanRow() {
+          return createScanRow;
+        },
+        get renderScanResults() {
+          return renderScanResults;
+        },
+        get refreshScan() {
+          return refreshScan;
+        },
+        get refreshAllScanPages() {
+          return refreshAllScanPages;
+        },
+        get searchScanResults() {
+          return searchScanResults;
+        },
+        get saveScanPageDrafts() {
+          return saveScanPageDrafts;
+        },
+        get selectScanPage() {
+          return selectScanPage;
+        },
+        get formatMac() {
+          return formatMac;
+        },
+        get cancelActiveScan() {
+          return cancelActiveScan;
+        },
+        get triggerScan() {
+          return triggerScan;
+        },
+        get scanAlreadyAddedTotal() {
+          return scanAlreadyAddedTotal;
+        },
+        set scanAlreadyAddedTotal(value) {
+          scanAlreadyAddedTotal = value;
+        }
+      });
+    });
+    /* page-scope:end */
+  </script>
+{% endblock %}

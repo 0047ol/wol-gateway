@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}设置后台密码{% endblock %}
+{% block content %}
+  <div class="card auth-card">
+    <h1>设置后台密码</h1>
+    <p>首次使用请设置管理员密码。设置后自动登录，之后保持登录，手动退出后需重新输入密码。</p>
+    <form action="/setup" method="post">
+      <div class="form-row">
+        <label for="password">登录密码</label><input id="password"
+       name="password"
+       type="password"
+       autocomplete="new-password"
+       required
+       minlength="8"
+       maxlength="128" />
+      </div>
+      <div class="form-row">
+        <label for="confirm-password">确认密码</label><input id="confirm-password"
+       name="confirm_password"
+       type="password"
+       autocomplete="new-password"
+       required
+       minlength="8"
+       maxlength="128" />
+      </div>
+      {% if error %}<span data-toast-error="{{ error }}" hidden></span>{% endif %}
+      <div class="form-actions">
+        <button type="submit" data-no-icon>设置密码并登录</button>
+      </div>
+    </form>
+  </div>
+{% endblock %}

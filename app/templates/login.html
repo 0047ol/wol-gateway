@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}登录 WOL{% endblock %}
+{% block content %}
+  <div class="card auth-card">
+    <h1>登录 WOL</h1>
+    <form id="login-form" action="/login" method="post">
+      <input type="hidden" name="next" value="{{ next_path }}" />
+      <div class="form-row">
+        <label for="username">账号</label><input id="username"
+       name="username"
+       type="text"
+       value="{{ username }}"
+       autocomplete="username"
+       required
+       maxlength="32" />
+      </div>
+      <div class="form-row">
+        <label for="password">密码</label><input id="password"
+       name="password"
+       type="password"
+       autocomplete="current-password"
+       required
+       maxlength="1024" />
+      </div>
+      {% if error %}<span data-toast-error="{{ error }}" hidden></span>{% endif %}
+      <div class="form-actions">
+        <button type="submit">登录</button>
+      </div>
+    </form>
+  </div>
+{% endblock %}
+{% block script %}
+  <script>
+    document.getElementById('login-form').addEventListener('submit', async event => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const button = form.querySelector('[type=submit]');
+      if (button.disabled) return;
+      button.disabled = true;
+      try {
+        const response = await fetch('/login', {
+          method: 'POST',
+          body: new FormData(form),
+          headers: {
+            Accept: 'application/json'
+          }
+        });
+        const result = await response.json();
+        if (response.ok && result.ok) location.assign(result.redirect);
+        else showToast(result.msg || '登录失败，请重试', {
+          error: true
+        });
+      } catch (_) {
+        showToast('网络请求失败，请稍后重试', {
+          error: true
+        });
+      } finally {
+        button.disabled = false;
+      }
+    });
+    // An old Strict cookie may be withheld on an external navigation's redirect
+    // chain, yet is available again to a request made by this same-origin page.
+    if (document.cookie.split('; ').some(value => value.startsWith('wol_csrf='))) {
+      const next = document.querySelector('input[name="next"]').value;
+      fetch('/login?' + new URLSearchParams({
+          next
+        }), {
+          cache: 'no-store'
+        })
+        .then(response => {
+          const target = new URL(response.url);
+          if (response.ok && response.redirected && target.origin === location.origin && !['/login', '/setup'].includes(target.pathname)) location.replace(target.href);
+        }).catch(() => {});
+    }
+  </script>
+{% endblock %}

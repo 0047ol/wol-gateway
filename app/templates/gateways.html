@@ -1,0 +1,850 @@
+{% extends "base.html" %}
+{% from "_controls.html" import action_icon, service_icon, status_select %}
+{% block title %}网关列表{% endblock %}
+{% block content %}
+  {% if page_user and is_admin %}
+    <div class="page-heading">
+      <div class="page-title-wrap">
+        <div class="page-title">
+          {% if is_admin %}
+            <a href="/users" class="back-icon" aria-label="返回" title="返回">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M19 12H5m7 7-7-7 7-7" />
+              </svg>
+            </a>
+          {% endif %}
+          <h1>网关管理</h1>
+        </div>
+        <p class="page-description" data-no-i18n>{{ page_user.username }}</p>
+      </div>
+    </div>
+  {% endif %}
+  <h1 class="visually-hidden">管理后台</h1>
+  {% if show_system_status %}
+    <section class="card system-card" aria-label="系统状态">
+      <div class="section-heading system-section-heading">
+        <div class="system-heading">
+          <h2>系统状态</h2>
+          <strong id="system-status"
+                  class="badge unknown service-summary"
+                  role="status"
+                  title="读取中…">未知</strong>
+        </div>
+        <span id="backend-uptime"
+              class="backend-uptime"
+              data-no-i18n
+              hidden
+              title="后端本次启动后的运行时长"></span>
+      </div>
+      {% if is_admin %}
+        <div class="service-strip metric-connection">
+          <div class="service-status-grid">
+            <div class="service-state unknown">
+              <span class="service-label">{{ service_icon("debian") }}Debian</span>
+              <span id="system-debian" class="service-value unknown">—</span>
+            </div>
+            <div class="service-state unknown">
+              <span class="service-label">{{ service_icon("nginx") }}Nginx</span>
+              <span id="system-http" class="service-value unknown">—</span>
+            </div>
+            <div class="service-state unknown">
+              <span class="service-label">{{ service_icon("python") }}Python</span>
+              <span id="system-backend" class="service-value unknown">—</span>
+            </div>
+            <div class="service-state unknown">
+              <span class="service-label">{{ service_icon("mqtt") }}MQTT</span>
+              <span id="system-mqtt" class="service-value unknown">—</span>
+            </div>
+            <div class="service-state unknown">
+              <span class="service-label">{{ service_icon("database") }}<span id="system-database-label"
+      data-no-i18n>MySQL</span></span>
+              <span id="system-database" class="service-value unknown">—</span>
+            </div>
+          </div>
+        </div>
+      {% endif %}
+      <div class="status-grid gateway-metrics">
+        <div class="metric" title="已收到有效心跳且未超过离线等待时间的网关。"><strong id="count-online">—</strong><span class="metric-label"><i class="status-dot online"></i>在线网关</span></div>
+        <div class="metric" title="已绑定但心跳超时的网关，包含离线超过 15 天的长期离线网关。"><strong id="count-offline">—</strong><span class="metric-label"><i class="status-dot offline"></i>离线网关</span></div>
+        <div class="metric" title="除在线、离线外的全部记录，包括待绑定、待删除、配对超时及各类失败状态；具体原因见列表状态。"><strong id="count-unbound">—</strong><span class="metric-label"><i class="status-dot unbound"></i>异常网关</span></div>
+        {% if is_admin %}
+          <a href="/users"
+             class="metric metric-users"
+             aria-label="用户管理"
+             title="查看和管理用户账号，不含管理员。">
+            <strong id="count-users">{{ account_users|length }}</strong>
+            <span class="metric-label">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2m20 0v-2a4 4 0 0 0-3-3.87M15 3.13a4 4 0 0 1 0 7.75" />
+                <circle cx="9" cy="7" r="4" />
+              </svg>用户数量</span>
+            </a>
+        {% else %}
+          <div class="metric" title="统计所有归属网关下的设备总数，包含未知及异常状态的设备，不按设备状态筛选。"><strong id="count-devices">—</strong><span class="metric-label">{{ action_icon("设备管理", false) }}设备数量</span></div>
+        {% endif %}
+      </div>
+    </section>
+  {% endif %}
+
+  <section class="card" id="gateway-access-note" hidden>
+    <p>没有查看网关列表的权限，请联系管理员。</p>
+  </section>
+  <div class="card" id="gateway-list-card">
+    <div class="section-heading list-heading">
+      <div>
+        <h2>网关列表 <span class="count-pill"
+       id="gateway-count"
+       title="在线 / 全部">{{ online_total }}/{{ all_total }}</span></h2>
+      </div>
+      <form id="gateway-search-form"
+            class="search-form list-search-form"
+            data-has-data="{{ 'true' if has_gateway_data else 'false' }}"
+            onsubmit="event.preventDefault(); refreshGatewayList(1, false)"
+            {% if not has_gateway_data %}hidden{% endif %}><input id="q"
+       value="{{ q }}"
+       placeholder="搜索 MAC / IP / 名称"
+       aria-label="搜索 MAC / IP / 名称"
+       {% if not has_gateway_data %}disabled{% endif %} /><span class="search-field-icon" aria-hidden="true">{{ action_icon("搜索") }}</span></form>
+    </div>
+    <div class="card-toolbar list-toolbar">
+      <div class="toolbar-bulk">
+        <div class="toolbar-action-group" data-toolbar-default>
+          {{ status_select('gateway-status-filter', status_filter) }}
+          <button type="button"
+                  id="gateway-add-trigger"
+                  data-default-action
+                  onclick="openDialog('add-gateway')"
+                  class="outline icon-button"
+                  data-icon-label="添加"
+                  aria-label="添加"
+                  title="添加">{{ action_icon("添加") }}</button>
+        </div>
+        <div class="toolbar-action-group" data-toolbar-selected hidden inert>
+          {% if is_admin %}
+            <button id="assign-selected-gateways"
+                    type="button"
+                    class="gray icon-button"
+                    onclick="openGatewayOwner()"
+                    aria-label="归属"
+                    title="归属"
+                    hidden
+                    disabled>{{ action_icon("归属") }}</button>
+          {% endif %}
+          <button type="button"
+                  id="edit-selected-gateways"
+                  class="gray icon-button"
+                  onclick="editSelectedGateways()"
+                  disabled
+                  hidden
+                  data-permission="gateway_edit"
+                  aria-label="编辑"
+                  title="编辑">{{ action_icon("编辑") }}</button>
+          <button type="button"
+                  id="ota-selected-gateways"
+                  class="gray icon-button"
+                  onclick="openBatchOta()"
+                  data-permission="gateway_ota"
+                  hidden
+                  disabled
+                  aria-label="批量 OTA 升级"
+                  title="批量 OTA 升级">{{ action_icon("远程 OTA 升级") }}</button>
+          <button type="button"
+                  id="delete-selected-gateways"
+                  hidden
+                  class="danger icon-button"
+                  onclick="removeSelectedGateways()"
+                  disabled
+                  data-icon-label="删除"
+                  aria-label="删除"
+                  title="删除">{{ action_icon("删除") }}</button>
+        </div>
+      </div>
+      <span id="gateway-selection-count"
+            class="selection-count"
+            role="status"
+            aria-live="polite"
+            hidden></span>
+    </div>
+
+    <div class="table-scroll" id="gateway-table-scroll">
+      <table id="gateway-table"
+             class="management-list"
+             data-sort="{{ sort }}"
+             data-direction="{{ direction }}">
+        <thead>
+          <tr>
+            <th>
+              <input id="select-all-gateways"
+                     type="checkbox"
+                     aria-label="选择全部网关"
+                     onchange="selectAllGateways(this.checked)" />
+            </th>
+            <th data-sort-key="id">序号</th>
+            <th data-sort-key="name">名称</th>
+            <th data-sort-key="ip">IP</th>
+            <th data-sort-key="mac">MAC</th>
+            <th data-sort-key="last_heartbeat">最后心跳</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for entry in entries %}
+            {% if entry.kind == "pairing" %}
+              {% set p = entry %}
+              {% set expiry_hint = ('配对码已于' if p.state == 'expired' else '配对码将于') ~ p.expires_at_display ~ '过期' %}
+              {% set countdown_hint = '\n剩余 ' ~ p.remaining_seconds ~ ' 秒' if 0 < p.remaining_seconds < 60 else '' %}
+              <tr data-pairing-id="{{ p.id }}"
+                  data-pairing-row="{{ p.id }}"
+                  data-sync-key="pairing:{{ p.id }}"
+                  data-revision="{{ p.revision }}">
+                <td><input class="gateway-check"
+       type="checkbox"
+       value="p:{{ p.id }}"
+       aria-label="选择配对记录 {{ p.id }}"
+       onchange="updateGatewaySelection()" /></td><td>P-{{ p.id }}</td><td class="gateway-name"><div class="device-identity"><span id="pairing-name-{{ p.id }}" data-name="{{ p.name }}">{% if p.name %}<span data-no-i18n>{{ p.name }}</span>{% else %}未命名网关{% endif %}</span><span class="badge {{ 'pairing_expired' if p.state == 'expired' else 'unbound' }}"
+      id="pair-state-{{ p.id }}"
+      data-state="{{ p.state }}"
+      data-expires-at="{{ p.expires_at }}"
+      title="{{ expiry_hint }}">{{ '配对超时' if p.state == 'expired' else '待绑定' }}</span></div></td><td class="mono">-</td><td class="mono">-</td>
+                <td class="mono">-</td>
+                <td class="row-actions">
+                  <button type="button"
+                          class="gray icon-button"
+                          disabled
+                          data-icon-label="编辑"
+                          aria-label="编辑"
+                          title="待配对网关不支持编辑">{{ action_icon("编辑") }}</button>
+                  {% for label in ['子设备', '日志'] %}
+                    <button type="button"
+                            class="gray icon-button"
+                            disabled
+                            data-icon-label="{{ label }}"
+                            aria-label="{{ label }}"
+                            title="配对完成后可查看">{{ action_icon(label) }}</button>
+                  {% endfor %}
+                  <button type="button"
+                          onclick="deletePairing({{ p.id }})"
+                          class="danger icon-button"
+                          data-icon-label="删除"
+                          aria-label="删除"
+                          title="删除">{{ action_icon("删除") }}</button>
+                  <button type="button"
+                          id="pair-renew-{{ p.id }}"
+                          onclick="renewPairing({{ p.id }})"
+                          class="gray icon-button"
+                          {% if p.state != 'expired' %}disabled{% endif %}
+                          data-icon-label="重新生成"
+                          aria-label="重新生成"
+                          title="{{ '重新生成配对码' if p.state == 'expired' else '配对码有效期结束后可再次生成' }}">{{ action_icon("重新生成") }}</button>
+                </td>
+              </tr>
+            {% else %}
+              {% set r = entry %}
+              <tr data-gateway-row="{{ r.public_id }}"
+                  data-sync-key="gateway:{{ r.public_id }}"
+                  data-revision="{{ r.edit_revision }}">
+                <td>
+                  <input class="gateway-check"
+                         type="checkbox"
+                         value="g:{{ r.public_id }}"
+                         {% if r.delete_requested_at %}disabled{% endif %}
+                         onchange="updateGatewaySelection()" />
+                </td>
+                <td>{{ r.display_order }}</td>
+                <td class="gateway-name"><div class="device-identity"><span data-no-i18n id="gateway-name-{{ r.public_id }}">{% if r.name %}{{ r.name }}{% else %}未命名网关{% endif %}</span><span class="badge {{ r|gateway_state }}"
+      id="status-{{ r.public_id }}"
+      data-connection-state="{{ r.status }}"
+      data-delete-pending="{{ 'true' if r.delete_requested_at else 'false' }}"
+      title="{{ r|gateway_notice }}">{{ gateway_labels[r|gateway_state] }}</span><span class="badge device-count"
+      id="gateway-device-count-{{ r.public_id }}"
+      title="{{ r.device_online_count }}个在线，{{ r.device_offline_count }}个离线{% if r.device_unknown_count %}，{{ r.device_unknown_count }}个未知{% endif %}">{{ r.device_count }}</span>{% if r.pairing %}<span id="gateway-pair-state-{{ r.public_id }}"
+      class="badge unbound"
+      data-expires-at="{{ r.pairing.expires_at }}">待绑定</span>{% endif %}</div></td>
+                <td class="mono" id="ip-{{ r.public_id }}">{{ r.ip or '-' }}</td>
+                <td class="mono" id="gateway-mac-{{ r.public_id }}">{{ r.mac|fmt_mac }}</td>
+
+
+
+                <td class="mono" id="hb-{{ r.public_id }}">{{ r.last_heartbeat or '-' }}</td>
+                <td class="row-actions" id="actions-{{ r.public_id }}">
+                  {% if r.delete_requested_at %}
+                    <button type="button"
+                            class="gray icon-button"
+                            disabled
+                            data-icon-label="编辑"
+                            aria-label="编辑"
+                            title="网关正在等待删除，请先撤销删除">{{ action_icon("编辑") }}</button>
+                    {% for label, page in [('子设备', 'devices'), ('日志', 'logs')] %}
+                      <a href="/gateway/{{ r.public_id }}/{{ page }}">
+                        <button type="button"
+                                class="gray icon-button"
+                                data-icon-label="{{ label }}"
+                                aria-label="{{ label }}"
+                                title="{{ label }}">{{ action_icon(label) }}</button>
+                      </a>
+                    {% endfor %}
+                    {% for label in ['删除'] %}
+                      <button type="button"
+                              class="{{ 'danger' if label == '删除' else 'gray' }} icon-button"
+                              disabled
+                              data-icon-label="{{ label }}"
+                              aria-label="{{ label }}"
+                              title="网关正在等待删除，请先撤销删除">{{ action_icon(label) }}</button>
+                    {% endfor %}
+                    {% if r|gateway_can_cancel_delete %}
+                      <button type="button"
+                              class="gray icon-button"
+                              onclick="cancelGatewayDelete('{{ r.public_id }}')"
+                              data-icon-label="撤销删除"
+                              aria-label="撤销删除"
+                              title="撤销删除">{{ action_icon("撤销删除") }}</button>
+                    {% endif %}
+                  {% else %}
+                    <button type="button"
+                            class="gray icon-button"
+                            onclick="showEdit('{{ r.public_id }}')"
+                            {% if not r|gateway_can_manage %}disabled{% endif %}
+                            data-icon-label="编辑"
+                            aria-label="编辑"
+                            title="编辑">{{ action_icon("编辑") }}</button>
+                    <a href="/gateway/{{ r.public_id }}/devices">
+                      <button type="button"
+                              class="gray icon-button"
+                              data-icon-label="子设备"
+                              aria-label="子设备"
+                              title="子设备">{{ action_icon("子设备") }}</button>
+                    </a>
+                    <a href="/gateway/{{ r.public_id }}/logs">
+                      <button type="button"
+                              class="gray icon-button"
+                              data-icon-label="日志"
+                              aria-label="日志"
+                              title="日志">{{ action_icon("日志") }}</button>
+                    </a>
+                    {% if r.status == "unbound" %}
+                      <button type="button"
+                              class="danger icon-button"
+                              onclick="deleteGateway('{{ r.public_id }}', 'unbound')"
+                              data-icon-label="删除"
+                              aria-label="删除"
+                              title="删除">{{ action_icon("删除") }}</button>
+                    {% elif r.status == "online" %}
+                      <button type="button"
+                              class="danger icon-button"
+                              onclick="deleteGateway('{{ r.public_id }}', 'online')"
+                              data-icon-label="删除"
+                              aria-label="删除"
+                              title="删除">{{ action_icon("删除") }}</button>
+                    {% else %}
+                      <button type="button"
+                              class="danger icon-button"
+                              onclick="deleteGateway('{{ r.public_id }}', 'offline')"
+                              data-icon-label="删除"
+                              aria-label="删除"
+                              title="删除">{{ action_icon("删除") }}</button>
+                    {% endif %}
+                    {% if r|gateway_can_repair_pairing %}
+                      <button type="button"
+                              class="gray icon-button"
+                              onclick="renewGatewayPairing('{{ r.public_id }}')"
+                              data-pairing-expires-at="{{ r.pairing.expires_at if r.pairing else 0 }}"
+                              {% if not r|gateway_can_repair_pairing or (r.pairing and r.pairing.expires_at > current_epoch) %}disabled{% endif %}
+                              data-icon-label="重新生成"
+                              aria-label="重新生成配对码"
+                              title="{{ '重新生成配对码' if r|gateway_can_repair_pairing else '网关在线，无需重新生成配对码' if r|gateway_state == 'online' else '网关尚未绑定，无法重新生成配对码' if r|gateway_state == 'unbound' else '网关状态异常，无法重新生成配对码' }}">{{ action_icon("重新生成") }}</button>
+                    {% endif %}
+                    {% if r|gateway_can_transfer %}
+                      <button type="button"
+                              class="gray icon-button"
+                              onclick="transferGateway('{{ r.public_id }}')"
+                              data-pairing-expires-at="{{ r.pairing.expires_at if r.pairing else 0 }}"
+                              {% if not r|gateway_can_transfer or (r.pairing and r.pairing.expires_at > current_epoch) %}disabled{% endif %}
+                              data-icon-label="转移网关"
+                              aria-label="转移网关"
+                              title="{{ '转移网关' if r|gateway_can_transfer else '仅状态正常的在线或离线网关可转移' }}">{{ action_icon("转移网关") }}</button>
+                    {% endif %}
+                  {% endif %}
+                </td>
+
+              </tr>
+            {% endif %}
+          {% endfor %}
+          {% if not entries %}<tr><td colspan="7" class="empty-state">{{ "没有匹配的网关" if q else "配对完成后，网关将在这里显示" }}</td></tr>{% endif %}
+        </tbody>
+        <tfoot>
+          <tr id="gateway-list-loading" hidden>
+            <td colspan="7" class="scan-loading-cell"><span class="scan-loading-status" role="status" aria-live="polite"><i class="scan-loading-spinner" aria-hidden="true"></i><span>正在读取网关…</span></span></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+
+    <div class="scroll-sentinel"
+         id="gateway-sentinel"
+         data-page="{{ page }}"
+         data-page-size="{{ page_size }}"
+         data-total-pages="{{ total_pages }}"
+         data-gateway-total="{{ gateway_total }}"
+         {% if page >= total_pages %}hidden{% endif %}>继续下滑加载</div>
+  </div>
+
+
+  <dialog id="add-gateway"
+          class="ui-dialog"
+          aria-labelledby="add-gateway-title">
+    <form onsubmit="event.preventDefault(); createGateway()">
+      <div class="dialog-heading">
+        <span class="dialog-symbol" aria-hidden="true">{{ action_icon("添加", false) }}</span>
+        <h2 id="add-gateway-title">添加网关</h2>
+      </div>
+      <div class="form-row">
+        <label for="n">网关名称（可选）</label><input id="n"
+       maxlength="16"
+       title="名称最多 16 个字符"
+       placeholder="留空使用默认名称" />
+      </div>
+      {% if scoped_owner %}
+        <input type="hidden"
+               id="new-gateway-owner"
+               value="{{ scoped_owner.public_id }}">
+      {% elif is_admin %}
+        <div class="gateway-owner-field">
+          <label for="new-gateway-owner">归属</label>
+          <select id="new-gateway-owner"
+                  aria-required="true"
+                  aria-describedby="new-gateway-owner-help">
+            <option value="" disabled selected>请选择归属用户</option>
+            {% for user in account_users %}{% if user.enabled %}<option value="{{ user.public_id }}"
+        {% if owner == user.public_id %}selected{% endif %}
+        data-no-i18n>{{ user.username }}</option>{% endif %}{% endfor %}
+          </select>
+          <p class="field-note" id="new-gateway-owner-help" role="status">{% if account_users|selectattr("enabled")|list %}必须指定归属用户，新配对码及网关由该用户管理。{% elif account_users %}当前全部用户均被禁用，请启用后再尝试{% else %}无可用用户，请先创建用户{% endif %}</p>
+        </div>
+      {% endif %}
+      <div class="dialog-actions">
+        <button type="button"
+                class="gray"
+                onclick="closeDialog('add-gateway')">取消</button><button type="submit">确定</button>
+      </div>
+    </form>
+  </dialog>
+  <dialog id="gateway-bulk-editor"
+          class="ui-dialog editor-dialog gateway-editor"
+          aria-labelledby="gateway-bulk-title">
+    <form id="gateway-bulk-form">
+      <div class="dialog-heading">
+        <span class="dialog-symbol" aria-hidden="true">{{ action_icon("编辑") }}</span>
+        <h2 id="gateway-bulk-title">批量编辑网关</h2>
+        <button type="button"
+                class="gateway-editor-close"
+                data-no-icon
+                aria-label="关闭"
+                title="关闭"
+                onclick="closeDialog('gateway-bulk-editor')">{{ action_icon("关闭") }}</button>
+      </div>
+      <div class="gateway-editor-body">
+        <p class="field-note">仅修改勾选的项目，其他配置保持不变；名称和网络设置不参与批量编辑。</p>
+        <ul id="gateway-bulk-targets" class="confirmation-targets" data-no-i18n>
+        </ul>
+        <div class="gateway-editor-grid">
+          {% for key,label,min,max,note in [
+            ('ping_interval','Ping 周期（秒）',5,3600,'每隔多久检查一次局域网设备。已关联关机服务的电脑由服务判断状态。'),
+            ('heartbeat_send_interval','心跳发送（秒）',5,300,'网关向服务器报告在线状态的间隔，建议保留默认值。'),
+            ('heartbeat_timeout','心跳超时（秒）',10,3600,'至少为发送间隔的两倍；离线判定还会保留至少 90 秒和三个心跳周期。'),
+            ('scan_concurrency','扫描并发数',1,8,'同时探测的设备数量，范围 1–8；较小数值占用更少资源。')
+          ] %}
+            <div class="gateway-editor-field">
+              <label class="bulk-config-choice">
+                <input type="checkbox" data-bulk-config="{{ key }}"><span>{{ label }}</span>
+              </label>
+              <input id="bulk-config-{{ key }}"
+                     type="number"
+                     min="{{ min }}"
+                     max="{{ max }}"
+                     disabled
+                     aria-label="{{ label }}"
+                     aria-describedby="bulk-help-{{ key }}">
+              <p id="bulk-help-{{ key }}" class="field-note">{{ note }}</p>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="dialog-actions">
+        <button id="gateway-bulk-save"
+                type="submit"
+                data-permission="gateway_edit"
+                disabled>保存并下发</button>
+      </div>
+    </form>
+  </dialog>
+  <div id="gateway-editors">
+    {% for r in rows %}
+      <dialog id="edit-{{ r.public_id }}"
+              class="ui-dialog editor-dialog gateway-editor"
+              data-sync-keys="gateway:{{ r.public_id }}"
+              data-revision="{{ r.edit_revision }}"
+              aria-labelledby="edit-title-{{ r.public_id }}">
+        <form onsubmit="event.preventDefault(); saveGateway('{{ r.public_id }}')">
+          <div class="dialog-heading">
+            <span class="dialog-symbol" aria-hidden="true">{{ action_icon("编辑") }}</span>
+            <h2 id="edit-title-{{ r.public_id }}">编辑网关</h2>
+            <button type="button"
+                    class="gateway-editor-close"
+                    data-no-icon
+                    aria-label="关闭"
+                    title="关闭"
+                    onclick="cancelEdit('{{ r.public_id }}')">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="m6 6 12 12M6 18 18 6" />
+              </svg>
+            </button>
+          </div>
+
+          <div class="gateway-editor-body">
+            <section class="gateway-editor-section">
+              <h3>基本信息</h3>
+              <div class="gateway-editor-grid">
+                <div class="gateway-editor-field">
+                  <label for="en-{{ r.public_id }}">名称</label><input id="en-{{ r.public_id }}"
+       type="text"
+       value="{{ r.name }}"
+       maxlength="16"
+       aria-describedby="en-help-{{ r.public_id }}">
+                  <p id="en-help-{{ r.public_id }}" class="field-note">在列表中显示的网关名称，最多 16 个字符。</p>
+                </div>
+              </div>
+            </section>
+            <section class="gateway-editor-section">
+              <h3>状态检测</h3>
+              <div class="gateway-editor-grid">
+                <div class="gateway-editor-field">
+                  <label for="ep-{{ r.public_id }}">Ping 周期（秒）</label><input id="ep-{{ r.public_id }}"
+       type="number"
+       value="{{ r.ping_interval }}"
+       min="5"
+       max="3600"
+       aria-describedby="ep-help-{{ r.public_id }}">
+                  <p id="ep-help-{{ r.public_id }}"
+                     class="field-note">每隔多久检查一次局域网设备。已关联关机服务的电脑由服务判断状态。</p>
+                </div>
+                <div class="gateway-editor-field">
+                  <label for="ehs-{{ r.public_id }}">心跳发送（秒）</label><input id="ehs-{{ r.public_id }}"
+       type="number"
+       value="{{ r.heartbeat_send_interval }}"
+       min="5"
+       max="300"
+       aria-describedby="ehs-help-{{ r.public_id }}">
+                  <p id="ehs-help-{{ r.public_id }}" class="field-note">网关向服务器报告在线状态的间隔，建议保留默认值。</p>
+                </div>
+                <div class="gateway-editor-field">
+                  <label for="eht-{{ r.public_id }}">心跳超时（秒）</label><input id="eht-{{ r.public_id }}"
+       type="number"
+       value="{{ r.heartbeat_timeout }}"
+       min="10"
+       max="3600"
+       aria-describedby="eht-help-{{ r.public_id }}">
+                  <p id="eht-help-{{ r.public_id }}"
+                     class="field-note">至少为发送间隔的两倍；离线判定还会保留至少 90 秒和三个心跳周期。</p>
+                </div>
+              </div>
+            </section>
+            <section class="gateway-editor-section">
+              <h3>局域网唤醒与扫描</h3>
+              <div class="gateway-editor-grid">
+                <div class="gateway-editor-field">
+                  <label for="ewb-{{ r.public_id }}">WOL 广播地址</label><input id="ewb-{{ r.public_id }}"
+       type="text"
+       value="{{ r.wol_broadcast_addr }}"
+       aria-describedby="ewb-help-{{ r.public_id }}">
+                  <p id="ewb-help-{{ r.public_id }}"
+                     class="field-note">开机唤醒包的目标地址，通常保留 255.255.255.255。</p>
+                </div>
+                <div class="gateway-editor-field">
+                  <label for="esc-{{ r.public_id }}">扫描网段 CIDR</label><input id="esc-{{ r.public_id }}"
+       type="text"
+       value="{{ r.scan_cidr }}"
+       placeholder="留空自动获取"
+       aria-describedby="esc-help-{{ r.public_id }}">
+                  <p id="esc-help-{{ r.public_id }}"
+                     class="field-note">留空自动选择当前局域网；自定义范围支持 /24 至 /30。</p>
+                </div>
+                <div class="gateway-editor-field">
+                  <label for="escc-{{ r.public_id }}">扫描并发数</label><input id="escc-{{ r.public_id }}"
+       type="number"
+       value="{{ r.scan_concurrency }}"
+       min="1"
+       max="8"
+       aria-describedby="escc-help-{{ r.public_id }}">
+                  <p id="escc-help-{{ r.public_id }}"
+                     class="field-note">同时探测的设备数量，范围 1–8；较小数值占用更少资源。</p>
+                </div>
+              </div>
+            </section>
+            <section class="gateway-editor-section">
+              <h3>WiFi 网络</h3>
+              <div class="gateway-editor-grid">
+                <div class="gateway-editor-field">
+                  <label for="ewssid-{{ r.public_id }}">WiFi SSID</label><input id="ewssid-{{ r.public_id }}"
+       type="text"
+       value="{{ r.wifi_ssid }}"
+       maxlength="32"
+       placeholder="尚未上报当前 WiFi 名称"
+       aria-describedby="ewssid-help-{{ r.public_id }}">
+                  <p id="ewssid-help-{{ r.public_id }}"
+                     class="field-note">网关当前连接的 WiFi 名称。修改后将切换网络，仅支持 2.4 GHz。</p>
+                </div>
+                <div class="gateway-editor-field">
+                  <label for="ewpw-{{ r.public_id }}">WiFi 密码</label><input id="ewpw-{{ r.public_id }}"
+       type="password"
+       value=""
+       autocomplete="new-password"
+       placeholder="留空保持现有密码"
+       aria-describedby="ewpw-help-{{ r.public_id }}">
+                  <p id="ewpw-help-{{ r.public_id }}"
+                     class="field-note">留空保留原密码；切换到其他 WiFi 时，请填写新网络的密码。</p>
+                </div>
+              </div>
+            </section>
+            <div class="gateway-config-actions">
+              <button type="submit">保存并下发</button>
+            </div>
+            <section class="gateway-editor-section gateway-ota-section"
+                     data-ota-gateway="{{ r.public_id }}"
+                     data-ota="{{ r.ota|tojson|forceescape }}">
+              <h3>远程 OTA 升级</h3>
+              <p class="field-note">选择本站提供的固件 ZIP，升级保留配网和设备数据。</p>
+              <dl class="gateway-ota-details">
+                <div>
+                  <dt>当前版本</dt>
+                  <dd data-ota-version data-no-i18n>
+                  </dd>
+                </div>
+                <div>
+                  <dt>上次更新时间</dt>
+                  <dd data-ota-updated data-no-i18n>
+                  </dd>
+                </div>
+              </dl>
+              <div class="gateway-update-check">
+                <button type="button"
+                        class="gray"
+                        data-ota-check
+                        data-permission="gateway_ota"
+                        onclick="checkOtaUpdate('{{ r.public_id }}')">检查更新</button>
+                <span class="field-note" data-ota-latest role="status" hidden></span>
+              </div>
+              <div class="gateway-auto-update">
+                <div>
+                  <label id="auto-ota-label-{{ r.public_id }}">OTA 自动更新</label>
+                  <p class="field-note">开启后自动安装本站新版固件。此设置即时保存，已开始的升级不受关闭影响。</p>
+                </div>
+                <button type="button"
+                        class="gateway-auto-switch"
+                        role="switch"
+                        aria-checked="{{ 'true' if r.ota.auto_update.enabled else 'false' }}"
+                        aria-labelledby="auto-ota-label-{{ r.public_id }}"
+                        data-no-icon
+                        data-ota-auto
+                        data-permission="gateway_ota_auto"
+                        onclick="setAutoUpdate('{{ r.public_id }}')"
+                        {% if not r.ota.auto_update.enabled and not r.ota.auto_update.can_enable %}disabled{% endif %}>
+                  <span></span>
+                </button>
+              </div>
+              <p class="field-note" data-ota-auto-status role="status" hidden></p>
+              <div class="gateway-ota-controls">
+                <input type="file"
+                       hidden
+                       accept=".zip,application/zip"
+                       id="ota-file-{{ r.public_id }}"
+                       data-ota-file
+                       onchange="selectOtaFile('{{ r.public_id }}')">
+                <button type="button"
+                        class="gray"
+                        data-ota-pick
+                        onclick="pickOtaFile('{{ r.public_id }}')"
+                        {% if not r.ota.can_upgrade %}disabled{% endif %}>选择固件包</button>
+                <span class="gateway-ota-filename" data-ota-filename data-no-i18n></span>
+                <button type="button"
+                        data-ota-upgrade
+                        disabled
+                        onclick="uploadOta('{{ r.public_id }}')">开始升级</button>
+              </div>
+              <progress data-ota-progress
+                        max="100"
+                        value="{{ r.ota.progress }}"
+                        aria-label="远程 OTA 升级"
+                        {% if not r.ota.busy %}hidden{% endif %}></progress>
+              <p class="field-note" data-ota-status role="status" hidden></p>
+            </section>
+            {% if is_admin %}
+              <section class="gateway-editor-section gateway-owner-section">
+                <h3>网关归属</h3>
+                <div class="gateway-owner-summary">
+                  <div><span class="field-note">归属用户</span><strong data-owner-id="{{ r.owner_public_id }}" data-no-i18n>{{ r.owner_label }}</strong></div>
+                  <button type="button"
+                          class="gray"
+                          onclick="openGatewayOwner('{{ r.public_id }}')">更改归属</button>
+                </div>
+                <p class="field-note">移交会停用现有分享，并使未领取的配对码失效。</p>
+              </section>
+            {% endif %}
+          </div>
+          <div class="dialog-actions gateway-editor-footer">
+            <button type="button" class="gray" onclick="cancelEdit('{{ r.public_id }}')">关闭</button>
+          </div>
+        </form>
+      </dialog>
+    {% endfor %}
+  </div>
+  <dialog id="gateway-batch-ota"
+          class="ui-dialog editor-dialog gateway-editor gateway-batch-ota"
+          aria-labelledby="gateway-batch-ota-title">
+    <form onsubmit="event.preventDefault(); uploadBatchOta()" style="padding:0">
+      <div class="dialog-heading">
+        <span class="dialog-symbol" aria-hidden="true">{{ action_icon("远程 OTA 升级", false) }}</span>
+        <h2 id="gateway-batch-ota-title">批量 OTA 升级</h2>
+        <button type="button"
+                class="gateway-editor-close"
+                data-no-icon
+                onclick="closeDialog('gateway-batch-ota')"
+                aria-label="关闭"
+                title="关闭">{{ action_icon("关闭") }}</button>
+      </div>
+      <div class="gateway-editor-body">
+        <p class="field-note">只升级较旧版本；同版本、更高版本及暂不支持升级的网关将跳过。</p>
+        <div class="gateway-update-check">
+          <button type="button"
+                  class="gray"
+                  id="batch-ota-check"
+                  data-permission="gateway_ota"
+                  onclick="checkBatchOtaUpdate()">检查更新</button>
+        </div>
+        <div class="ota-package-field">
+          <input id="batch-ota-file"
+                 type="file"
+                 accept=".zip,application/zip"
+                 hidden
+                 data-permission="gateway_ota"
+                 onchange="selectBatchOtaFile()" />
+          <div class="ota-package-name">
+            <span id="batch-ota-empty">尚未选择固件包</span>
+            <span id="batch-ota-filename"
+                  class="gateway-ota-filename"
+                  data-no-i18n
+                  hidden></span>
+          </div>
+          <button type="button"
+                  class="gray"
+                  id="batch-ota-pick"
+                  data-permission="gateway_ota"
+                  onclick="document.getElementById('batch-ota-file').click()">选择固件包</button>
+        </div>
+        <p id="batch-ota-status" class="field-note" role="status"></p>
+        <ul id="batch-ota-results"
+            class="confirmation-targets"
+            data-no-i18n
+            hidden>
+        </ul>
+      </div>
+      <div class="dialog-actions">
+        <button type="submit"
+                id="batch-ota-submit"
+                data-permission="gateway_ota"
+                disabled>检查并升级</button>
+      </div>
+    </form>
+  </dialog>
+  {% if is_admin %}
+    <dialog id="gateway-owner-dialog"
+            class="ui-dialog editor-dialog gateway-editor"
+            aria-labelledby="gateway-owner-title">
+      <form onsubmit="event.preventDefault(); submitGatewayOwner()">
+        <div class="dialog-heading">
+          <span class="dialog-symbol" aria-hidden="true">{{ action_icon("归属", false) }}</span>
+          <h2 id="gateway-owner-title">更改归属</h2>
+          <button type="button"
+                  class="gateway-editor-close"
+                  data-no-icon
+                  onclick="closeDialog('gateway-owner-dialog')"
+                  aria-label="关闭"
+                  title="关闭">{{ action_icon("关闭") }}</button>
+        </div>
+        <div class="gateway-editor-body">
+          <ul id="gateway-owner-targets"
+              class="confirmation-targets"
+              data-no-i18n
+              hidden>
+          </ul>
+          <div class="gateway-owner-menu">
+            <label for="gateway-bulk-owner-select">归属用户</label>
+            <select id="gateway-bulk-owner-select"
+                    data-searchable="true"
+                    data-search-placeholder="搜索用户"
+                    aria-label="归属用户">
+              <option value="" selected disabled>请选择归属用户</option>
+              {% for user in account_users if user.enabled %}
+                <option value="{{ user.public_id }}" data-no-i18n>{{ user.username }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <p class="field-note">移交会停用现有分享，并使未领取的配对码失效。</p>
+        </div>
+        <div class="dialog-actions">
+          <button type="submit" class="danger" id="gateway-owner-submit" disabled>移交</button>
+        </div>
+      </form>
+    </dialog>
+  {% endif %}
+  <dialog id="key-modal"
+          class="ui-dialog pairing-dialog"
+          aria-labelledby="pairing-title">
+    <div class="dialog-heading">
+      <span class="dialog-symbol" aria-hidden="true">{{ action_icon("配对", false) }}</span>
+      <h2 id="pairing-title">配对码</h2>
+    </div>
+    <p style="color:#666;font-size:13px">连接设备热点，在配网页面填写下方配对码。</p>
+    <p id="pair-context" hidden></p>
+    <div class="key-box"
+         id="key-value"
+         data-no-i18n
+         style="font-size:16px;
+                padding:12px;
+                word-break:break-all;
+                border:1px solid #e5e7eb;
+                border-radius:6px;
+                background:#f9fafb"></div>
+    <p class="pairing-expiry" id="pair-expiry"></p>
+    <div class="dialog-actions">
+      <button onclick="copyKey()">复制</button>
+    </div>
+  </dialog>
+  <dialog id="gateway-delete-dialog"
+          class="ui-dialog"
+          aria-labelledby="gateway-delete-title">
+    <div class="dialog-heading">
+      <span class="dialog-symbol" aria-hidden="true">{{ action_icon("删除", false) }}</span>
+      <h2 id="gateway-delete-title" data-no-i18n>删除网关</h2>
+    </div>
+    <p id="gateway-delete-message"></p>
+    <ul id="gateway-delete-targets"
+        class="confirmation-targets"
+        data-no-i18n
+        hidden>
+    </ul>
+    <div class="dialog-actions">
+      <button type="button" class="gray" onclick="resolveGatewayDelete('cancel')">取消</button><button type="button"
+        id="gateway-delete-queue"
+        class="danger"
+        onclick="resolveGatewayDelete('queue')"
+        data-no-icon>排队等待删除</button><button type="button"
+        class="danger"
+        id="gateway-delete-force"
+        onclick="resolveGatewayDelete('force')">仅删除后台记录</button>
+    </div>
+  </dialog>
+{% endblock %}
+
+{% block script %}
+  <script data-page-script src="/static/gateways.js?v=20261112-02"></script>
+{% endblock %}

@@ -1,0 +1,369 @@
+{% from "_gateway_info.html" import gateway_info %}
+{% extends "base.html" %}
+{% from "_controls.html" import action_icon %}
+{% block title %}网关日志{% endblock %}
+{% block content %}
+  <div class="page-heading">
+    <div class="page-title-wrap">
+      <div class="page-title">
+        <a class="back-icon" href="/" aria-label="返回网关" title="返回网关">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M19 12H5m7 7-7-7 7-7" />
+          </svg>
+        </a>
+        <h1 title="{{ gateway_info(gw) }}">网关日志</h1>
+      </div>
+      {% if gw.name %}<p class="page-description"
+   title="{{ gateway_info(gw) }}"><span data-no-i18n>{{ gw.name }}</span></p>{% endif %}
+    </div>
+  </div>
+  <div class="card">
+    <div class="section-heading">
+      <h2>MQTT收发报文</h2>
+      <div class="section-actions">
+        <button type="button"
+                class="danger icon-button"
+                id="clear-messages"
+                disabled
+                data-icon-label="删除"
+                aria-label="清空"
+                title="清空"
+                onclick="clearLogs('messages')">{{ action_icon("删除") }}</button>
+      </div>
+    </div>
+    <div class="table-scroll log-scroll"
+         id="messages-scroll"
+         tabindex="0"
+         aria-label="MQTT 收发报文">
+      <table id="messages-table"
+             class="log-table"
+             data-sort="id"
+             data-direction="desc">
+        <thead>
+          <tr>
+            <th data-sort-key="dir">方向</th>
+            <th data-sort-key="ts">时间</th>
+            <th data-sort-key="topic">MQTT主题</th>
+            <th data-sort-key="payload">内容</th>
+          </tr>
+        </thead>
+        <tbody id="messages">
+        </tbody>
+      </table>
+      <div id="messages-sentinel" class="scroll-sentinel" hidden>继续下滑加载</div>
+    </div>
+    <p id="messages-progress" class="log-progress"></p>
+  </div>
+  <div class="card">
+    <div class="section-heading">
+      <h2>最近指令日志</h2>
+      <div class="section-actions">
+        <button type="button"
+                class="danger icon-button"
+                id="clear-commands"
+                disabled
+                data-icon-label="删除"
+                aria-label="清空"
+                title="清空"
+                onclick="clearLogs('commands')">{{ action_icon("删除") }}</button>
+      </div>
+    </div>
+    <div class="table-scroll log-scroll"
+         id="commands-scroll"
+         tabindex="0"
+         aria-label="最近指令日志">
+      <table id="commands-table"
+             class="log-table"
+             data-sort="id"
+             data-direction="desc">
+        <thead>
+          <tr>
+            <th data-sort-key="cmd_type">类型</th>
+            <th data-sort-key="status">状态</th>
+            <th data-sort-key="payload">内容</th>
+            <th data-sort-key="created_at">下发时间</th>
+            <th data-sort-key="ack_at">应答时间</th>
+            <th data-sort-key="ack_msg">应答消息</th>
+          </tr>
+        </thead>
+        <tbody id="commands">
+        </tbody>
+      </table>
+      <div id="commands-sentinel" class="scroll-sentinel" hidden>继续下滑加载</div>
+    </div>
+    <p id="commands-progress" class="log-progress"></p>
+  </div>
+{% endblock %}
+{% block script %}
+  <script data-page-script>
+    /* page-scope:start */
+    WolPage.mount(({
+      window,
+      globalThis,
+      document,
+      fetch,
+      history,
+      setInterval,
+      clearInterval,
+      setTimeout,
+      clearTimeout,
+      IntersectionObserver,
+      showToast,
+      postForm,
+      uiConfirm,
+      uiAlert,
+      expose
+    }) => {
+
+      const logState = {
+        messages: {
+          items: [],
+          cursor: null,
+          offset: 0,
+          more: false,
+          loading: false,
+          total: 0,
+          generation: 0,
+          loaded: false,
+          clearing: false,
+          confirming: false
+        },
+        commands: {
+          items: [],
+          cursor: null,
+          offset: 0,
+          more: false,
+          loading: false,
+          total: 0,
+          generation: 0,
+          loaded: false,
+          clearing: false,
+          confirming: false
+        }
+      };
+
+      let canClearLogs = {{ gateway_view.can_manage|tojson }};
+      let logAvailabilityLoading = false;
+
+      async function refreshLogAvailability() {
+        if (logAvailabilityLoading) return;
+        logAvailabilityLoading = true;
+        try {
+          const response = await fetch('/api/gateway/{{ gw.public_id }}/availability', {
+            cache: 'no-store',
+            signal: AbortSignal.timeout(8000)
+          });
+          if (!response.ok) throw new Error('无法读取网关状态，请稍后重试');
+          const availability = await response.json();
+          canClearLogs = availability.can_manage === true;
+        } catch (error) {
+          canClearLogs = false;
+        } finally {
+          logAvailabilityLoading = false;
+          updateLogClearButton('messages');
+          updateLogClearButton('commands');
+        }
+      }
+
+      function updateLogClearButton(kind) {
+        const state = logState[kind];
+        document.getElementById('clear-' + kind).disabled = !canClearLogs || !state.loaded || state.total <= 0 || state.loading || state.clearing || state.confirming || Boolean(state.lastError);
+      }
+
+      function renderLogCard(kind) {
+        const state = logState[kind],
+          body = document.getElementById(kind);
+        body.replaceChildren();
+        if (!state.items.length) {
+          const cell = body.insertRow().insertCell();
+          cell.colSpan = kind === 'messages' ? 4 : 6;
+          cell.textContent = t('暂无日志');
+          cell.className = 'empty-state';
+        }
+        for (const entry of state.items) {
+          const row = body.insertRow();
+          row.dataset.logId = entry.id;
+          const values = kind === 'messages' ? [t(entry.dir === 'IN' ? '收' : '发'), entry.ts, entry.topic, entry.payload] : [t(entry.cmd_type), t(entry.status), entry.payload, entry.created_at, entry.ack_at || '-', entry.ack_msg || '-'];
+          values.forEach((value, index) => {
+            const cell = row.insertCell();
+            cell.textContent = value ?? '-';
+            if (index >= 2) cell.dataset.noI18n = '';
+          });
+        }
+        document.getElementById(kind + '-sentinel').hidden = !state.more;
+        document.getElementById(kind + '-progress').textContent = t(`已加载 ${state.items.length} / ${state.total} 条`);
+        updateLogClearButton(kind);
+      }
+      async function refreshLogCard(kind, append = false, afterClear = false) {
+        const state = logState[kind],
+          scroller = document.getElementById(kind + '-scroll');
+        if (state.loading || state.confirming || (state.clearing && !afterClear) || (append && !state.more)) return;
+        if (!append && state.items.length && scroller.scrollTop > 40) return;
+        state.loading = true;
+        updateLogClearButton(kind);
+        const generation = state.generation;
+        try {
+          const query = new URLSearchParams({
+            kind,
+            page_size: '10'
+          });
+          const order = globalThis.WolTables?.options(kind + '-table') || {
+            sort: 'id',
+            direction: 'desc'
+          };
+          query.set('sort', order.sort);
+          query.set('direction', order.direction);
+          const retained = Math.max(10, state.items.length);
+          query.set('page_size', String(append ? 10 : Math.min(50, retained)));
+          if (append) query.set('offset', state.offset);
+          let data;
+          const fetched = [];
+          do {
+            const response = await fetch('/api/gateway/{{ gw.public_id }}/log_entries?' + query, {
+              cache: 'no-store'
+            });
+            data = await response.json();
+            if (!response.ok) throw new Error(data.msg || t('无法读取网关日志'));
+            if (generation !== state.generation) return;
+            fetched.push(...data.items);
+            if (append || !data.has_more || fetched.length >= retained || !data.items.length) break;
+            query.set('offset', String(data.next_offset));
+            query.set('page_size', String(Math.min(50, retained - fetched.length)));
+          } while (true);
+          data.items = fetched;
+          if (typeof data.can_clear === 'boolean') canClearLogs = data.can_clear;
+          if (generation !== state.generation) return;
+          state.total = data.total;
+          state.loaded = true;
+          if (!data.total) {
+            state.items = [];
+            state.cursor = null;
+            state.more = false;
+          }
+          if (append) {
+            const ids = new Set(state.items.map(item => item.id));
+            state.items.push(...data.items.filter(item => !ids.has(item.id)));
+            state.cursor = data.next_cursor;
+            state.more = data.has_more;
+          } else {
+            state.items = data.items;
+            state.cursor = data.next_cursor;
+            state.more = data.has_more;
+          }
+          state.offset = data.next_offset;
+          state.lastError = '';
+          renderLogCard(kind);
+        } catch (error) {
+          if (state.lastError !== error.message) showToast(error.message, {
+            error: true,
+            duration: 8000
+          });
+          state.lastError = error.message;
+        } finally {
+          state.loading = false;
+          updateLogClearButton(kind);
+          if (state.sortPending) {
+            state.sortPending = false;
+            refreshLogCard(kind);
+          }
+        }
+      }
+      async function clearLogs(kind) {
+        const state = logState[kind];
+        if (!canClearLogs || !state || !state.loaded || !state.total || state.loading || state.clearing || state.confirming || state.lastError) return;
+        const message = kind === 'messages' ? '清空此网关的 MQTT 收发报文？' : '清空此网关的历史指令日志？执行中的指令会保留。';
+        state.confirming = true;
+        updateLogClearButton(kind);
+        let confirmed;
+        try {
+          confirmed = await uiConfirm(message, {
+            title: '清空日志',
+            confirmText: '清空',
+            danger: true,
+            skipCountdown: true
+          });
+        } finally {
+          state.confirming = false;
+          updateLogClearButton(kind);
+        }
+        if (!confirmed) return;
+        if (!canClearLogs || !state.total || state.loading || state.clearing || state.confirming || state.lastError) return;
+        state.clearing = true;
+        updateLogClearButton(kind);
+        state.generation++;
+        try {
+          const response = await fetch(`/api/logs/clear?gid={{ gw.public_id }}&kind=${kind}`, {
+            method: 'POST'
+          });
+          const data = await response.json();
+          if (!response.ok || !data.ok) throw new Error(data.msg || t('操作失败'));
+          showToast(data.msg || '操作完成', {
+            success: true
+          });
+          state.items = [];
+          state.total = 0;
+          state.cursor = null;
+          state.more = false;
+          document.getElementById(kind + '-scroll').scrollTop = 0;
+          renderLogCard(kind);
+          await refreshLogCard(kind, false, true);
+        } catch (error) {
+          showToast(t('清理失败：') + t(error.message), {
+            error: true
+          });
+        } finally {
+          state.clearing = false;
+          updateLogClearButton(kind);
+        }
+      }
+      for (const kind of ['messages', 'commands']) {
+        globalThis.WolTables?.bind(kind + '-table', () => {
+          const state = logState[kind];
+          state.generation++;
+          state.items = [];
+          state.cursor = null;
+          state.offset = 0;
+          state.more = false;
+          document.getElementById(kind + '-scroll').scrollTop = 0;
+          if (!state.loading) refreshLogCard(kind);
+          else state.sortPending = true;
+        });
+        const scroller = document.getElementById(kind + '-scroll');
+        scroller.addEventListener('scroll', () => {
+          if (scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 80) refreshLogCard(kind, true);
+        });
+        if (typeof IntersectionObserver === 'function') new IntersectionObserver(entries => {
+          if (entries.some(entry => entry.isIntersecting)) refreshLogCard(kind, true);
+        }, {
+          root: scroller,
+          rootMargin: '0px 0px 80px 0px'
+        }).observe(document.getElementById(kind + '-sentinel'));
+        refreshLogCard(kind);
+      }
+      setInterval(() => {
+        refreshLogAvailability();
+        for (const kind of ['messages', 'commands']) refreshLogCard(kind);
+      }, 3000);
+
+      /* Page exports used by markup and the shared UI. */
+      expose({
+        get logState() {
+          return logState;
+        },
+        get updateLogClearButton() {
+          return updateLogClearButton;
+        },
+        get renderLogCard() {
+          return renderLogCard;
+        },
+        get refreshLogCard() {
+          return refreshLogCard;
+        },
+        get clearLogs() {
+          return clearLogs;
+        }
+      });
+    });
+    /* page-scope:end */
+  </script>
+{% endblock %}

@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>WOL Gateway 部署配置</title>
+  <style>
+    :root{font-family:Inter,"Segoe UI",system-ui,sans-serif;color:#1d2939;background:#f5f7fa;font-synthesis:none;text-rendering:optimizeLegibility;--surface:#fff;--line:#d8dee8;--muted:#667085;--blue:#1769aa;--green:#147d64}
+    @media(prefers-color-scheme:dark){:root{color:#e5eaf1;background:#111820;--surface:#18222c;--line:#34414d;--muted:#a0adba;--blue:#6bb5f0;--green:#52c5a4}}
+    *{box-sizing:border-box}body{margin:0;min-height:100vh}.shell{width:min(920px,100% - 32px);margin:36px auto 64px}.top{display:flex;align-items:center;gap:14px;margin-bottom:26px}.mark{width:40px;height:40px;display:grid;place-items:center;border:1px solid var(--line);border-radius:10px;color:var(--blue);background:var(--surface)}h1{font-size:22px;line-height:1.25;margin:0}.subtitle{margin:5px 0 0;color:var(--muted);font-size:14px}
+    form{display:grid;gap:16px}.section{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:20px}.section h2{font-size:16px;margin:0 0 16px}.fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 16px}.field{display:grid;gap:6px;min-width:0}.field.full{grid-column:1/-1}label{font-size:13px;font-weight:600}.hint{font-size:12px;line-height:1.5;color:var(--muted)}input{width:100%;min-height:40px;border:1px solid var(--line);border-radius:6px;padding:8px 10px;background:var(--surface);color:inherit;font:inherit}input:focus{outline:2px solid color-mix(in srgb,var(--blue) 35%,transparent);outline-offset:1px}.actions{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap}.button{min-height:40px;padding:8px 14px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:inherit;font:inherit;font-weight:600;cursor:pointer}.button.primary{background:var(--blue);border-color:var(--blue);color:#fff}.button:disabled{opacity:.45;cursor:not-allowed}.notice{padding:12px 14px;border-left:3px solid var(--green);background:color-mix(in srgb,var(--green) 9%,var(--surface));font-size:13px;line-height:1.55}.outputs{display:none}.outputs.visible{display:grid;gap:12px}.output{display:grid;gap:8px}.output-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.output-head strong{font-size:13px}textarea{width:100%;min-height:145px;resize:vertical;padding:12px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:inherit;font:12px/1.55 ui-monospace,Consolas,monospace}.output button{min-height:32px;padding:5px 10px;font-size:12px}.foot{margin-top:20px;color:var(--muted);font-size:12px;line-height:1.6}
+    @media(max-width:600px){.shell{width:calc(100% - 24px);margin:20px auto 40px}.section{padding:16px}.fields{grid-template-columns:1fr}.field.full{grid-column:auto}.actions{display:grid;grid-template-columns:1fr}.button{width:100%}.top{margin-bottom:18px}}
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="top">
+      <div class="mark" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v9m-5.7-5.7a8 8 0 1 0 11.4 0M5 21h14"/></svg></div>
+      <div><h1>WOL Gateway 部署配置</h1><p class="subtitle">填写目标服务器参数，生成配置文件。</p></div>
+    </header>
+    <form id="config-form" autocomplete="off">
+      <section class="section">
+        <h2>服务地址</h2>
+        <div class="fields">
+          <div class="field"><label for="domain">公网域名</label><input id="domain" name="domain" placeholder="wol.example.org" required autocomplete="off"><span class="hint">输入不带协议和路径的主机名；DNS 与 HTTPS 证书由部署者配置。</span></div>
+          <div class="field"><label for="install-dir">项目目录</label><input id="install-dir" name="install-dir" value="/opt/wol-gateway" required></div>
+          <div class="field"><label for="run-user">Linux 运行账户</label><input id="run-user" name="run-user" value="wolgateway" required></div>
+          <div class="field"><label for="app-port">网站本地端口</label><input id="app-port" name="app-port" type="number" value="8088" min="1024" max="65535" required></div>
+        </div>
+      </section>
+      <section class="section">
+        <h2>数据库</h2>
+        <div class="fields">
+          <div class="field"><label for="db-host">MySQL 地址</label><input id="db-host" name="db-host" value="127.0.0.1" required></div>
+          <div class="field"><label for="db-port">MySQL 端口</label><input id="db-port" name="db-port" type="number" value="3306" min="1" max="65535" required></div>
+          <div class="field"><label for="db-name">数据库名</label><input id="db-name" name="db-name" value="wol_gateway" required></div>
+          <div class="field"><label for="db-user">数据库用户</label><input id="db-user" name="db-user" required autocomplete="off"></div>
+          <div class="field full"><label for="db-password">数据库密码</label><input id="db-password" name="db-password" type="password" required autocomplete="new-password"><span class="hint">使用独立低权限账号；密码仅写入你下载的本地文件。</span></div>
+        </div>
+      </section>
+      <section class="section">
+        <h2>MQTT</h2>
+        <div class="fields">
+          <div class="field"><label for="mqtt-host">公网 MQTT 域名</label><input id="mqtt-host" name="mqtt-host" placeholder="默认使用上方公网域名"></div>
+          <div class="field"><label for="mqtt-public-port">网关 TLS 端口</label><input id="mqtt-public-port" name="mqtt-public-port" type="number" value="8883" min="1" max="65535" required></div>
+          <div class="field"><label for="mqtt-local-host">服务端 Broker 地址</label><input id="mqtt-local-host" name="mqtt-local-host" value="127.0.0.1" required></div>
+          <div class="field"><label for="mqtt-local-port">服务端 Broker 端口</label><input id="mqtt-local-port" name="mqtt-local-port" type="number" value="1883" min="1" max="65535" required></div>
+          <div class="field"><label for="mqtt-user">服务端 MQTT 用户</label><input id="mqtt-user" name="mqtt-user" value="wol_server" required autocomplete="off"></div>
+          <div class="field"><label for="mqtt-password">服务端 MQTT 密码</label><input id="mqtt-password" name="mqtt-password" type="password" required autocomplete="new-password"></div>
+        </div>
+      </section>
+      <div class="notice">本页不联网、不保存表单，也不会执行远程部署。生成密钥文件后，请限制为仅服务账户可读，并自行配置 HTTPS、MQTT TLS/ACL、防火墙和备份。</div>
+      <div class="actions"><button class="button primary" type="submit">生成部署配置</button></div>
+    </form>
+    <section id="outputs" class="section outputs" aria-live="polite">
+      <h2>生成的配置</h2>
+      <div class="output" data-output="env"><div class="output-head"><strong>网站环境变量：wol.env</strong><button class="button" type="button">下载</button></div><textarea readonly spellcheck="false"></textarea></div>
+      <div class="output" data-output="mysql"><div class="output-head"><strong>MySQL 凭据：mysql.json</strong><button class="button" type="button">下载</button></div><textarea readonly spellcheck="false"></textarea></div>
+      <div class="output" data-output="website-service"><div class="output-head"><strong>网站服务：wol-gateway.service</strong><button class="button" type="button">下载</button></div><textarea readonly spellcheck="false"></textarea></div>
+      <div class="output" data-output="enrollment-service"><div class="output-head"><strong>设备接入服务：wol-enrollment.service</strong><button class="button" type="button">下载</button></div><textarea readonly spellcheck="false"></textarea></div>
+    </section>
+    <p class="foot">下载后请检查所有路径和端口。该配置模板不包含 Nginx、TLS 证书、Mosquitto ACL、OTA 签名私钥或固件构建配置。</p>
+  </main>
+  <script>
+    (() => {
+      const form = document.getElementById('config-form');
+      const outputs = document.getElementById('outputs');
+      const value = name => form.elements[name].value.trim();
+      const quoteEnv = text => '"' + text.replaceAll('\\', '\\\\').replaceAll('"', '\\"') + '"';
+      const validPort = (name, minimum) => {
+        const input = form.elements[name];
+        const port = Number(input.value);
+        if (!Number.isInteger(port) || port < minimum || port > 65535) {
+          input.setCustomValidity('请输入 ' + minimum + ' 至 65535 之间的整数端口。');
+          input.reportValidity();
+          return false;
+        }
+        input.setCustomValidity('');
+        return true;
+      };
+      const setOutput = (key, filename, content) => {
+        const node = document.querySelector('[data-output="' + key + '"]');
+        node.querySelector('textarea').value = content;
+        node.querySelector('button').onclick = () => {
+          const link = document.createElement('a');
+          link.href = URL.createObjectURL(new Blob([content], {type:'text/plain;charset=utf-8'}));
+          link.download = filename;
+          link.click();
+          setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+        };
+      };
+      form.addEventListener('submit', event => {
+        event.preventDefault();
+        for (const input of form.querySelectorAll('input')) input.setCustomValidity('');
+        if (!form.reportValidity()) return;
+        const domain = value('domain').replace(/^https?:\/\//i, '').replace(/\/$/, '');
+        if (!/^[a-zA-Z0-9.-]+$/.test(domain) || domain.includes('..')) {
+          form.elements.domain.setCustomValidity('请输入有效域名或主机名，不要包含协议或路径。');
+          form.elements.domain.reportValidity();
+          return;
+        }
+        form.elements.domain.setCustomValidity('');
+        const runUser = value('run-user');
+        const installDir = value('install-dir').replace(/\/$/, '');
+        const mysqlHost = value('db-host');
+        const mysqlUser = value('db-user');
+        const mqttLocalHost = value('mqtt-local-host');
+        const mqttUser = value('mqtt-user');
+        const secretFields = ['db-password', 'mqtt-password'];
+        const unsafeLine = [...form.querySelectorAll('input')].some(input => /[\r\n]/.test(input.value));
+        if (unsafeLine) {
+          alert('字段中不能包含换行符。');
+          return;
+        }
+        if (!/^[a-z_][a-z0-9_-]{0,31}$/.test(runUser)) {
+          form.elements['run-user'].setCustomValidity('请输入有效的 Linux 用户名。');
+          form.elements['run-user'].reportValidity();
+          return;
+        }
+        form.elements['run-user'].setCustomValidity('');
+        if (!/^\/[A-Za-z0-9._/-]+$/.test(installDir) || installDir.split('/').includes('..')) {
+          form.elements['install-dir'].setCustomValidity('请输入不含空格和上级目录的绝对路径。');
+          form.elements['install-dir'].reportValidity();
+          return;
+        }
+        form.elements['install-dir'].setCustomValidity('');
+        if (!/^[A-Za-z0-9.-]+$/.test(mysqlHost) || !/^[A-Za-z0-9_-]+$/.test(mysqlUser) ||
+            !/^[A-Za-z0-9.-]+$/.test(mqttLocalHost) || !/^[A-Za-z0-9_-]+$/.test(mqttUser) ||
+            secretFields.some(name => !value(name))) {
+          alert('请检查数据库和 MQTT 主机名、账号及密码格式。');
+          return;
+        }
+        if (!validPort('app-port', 1024) || !validPort('db-port', 1) ||
+            !validPort('mqtt-public-port', 1) || !validPort('mqtt-local-port', 1)) return;
+        const mqttHost = value('mqtt-host') || domain;
+        if (!/^[A-Za-z0-9.-]+$/.test(mqttHost) || mqttHost.includes('..')) {
+          form.elements['mqtt-host'].setCustomValidity('请输入有效的域名或主机名。');
+          form.elements['mqtt-host'].reportValidity();
+          return;
+        }
+        form.elements['mqtt-host'].setCustomValidity('');
+        const root = installDir;
+        const env = [
+          'DEBUG=false','HOST=127.0.0.1','PORT=' + value('app-port'),
+          'DB_BACKEND=mysql','MYSQL_CONFIG_FILE=/etc/wol-gateway/mysql.json',
+          'ADMIN_AUTH_PATH=/var/lib/wol-gateway/admin-auth.json',
+          'SHARE_SECRET_PATH=/var/lib/wol-gateway/share-secret.key',
+          'OTA_STORAGE_PATH=/var/lib/wol-gateway/firmware-ota',
+          'MQTT_HOST=' + value('mqtt-local-host'),'MQTT_PORT=' + value('mqtt-local-port'),
+          'MQTT_USERNAME=' + quoteEnv(value('mqtt-user')),'MQTT_PASSWORD=' + quoteEnv(value('mqtt-password')),
+          'MQTT_PUBLIC_HOST=' + mqttHost,'MQTT_PUBLIC_PORT=' + value('mqtt-public-port'),
+          'ENROLLMENT_URL=https://' + domain + ':8443','POWER_AGENT_PUBLIC_URL=https://' + domain,
+          'MQTT_AUTH_DIR=/etc/mosquitto/wol-auth',''
+        ].join('\n');
+        const mysql = JSON.stringify({host:value('db-host'),port:Number(value('db-port')),user:value('db-user'),password:value('db-password'),database:value('db-name')},null,2) + '\n';
+        const service = (description,module,port) =>
+          '[Unit]\nDescription=' + description + '\nAfter=network-online.target mosquitto.service mysql.service\nWants=network-online.target\n\n' +
+          '[Service]\nType=simple\nUser=' + value('run-user') + '\nGroup=' + value('run-user') + '\nWorkingDirectory=' + root + '\n' +
+          'EnvironmentFile=/etc/wol-gateway/wol.env\nExecStart=' + root + '/.venv/bin/python -m uvicorn ' + module + ' --host 127.0.0.1 --port ' + port + ' --no-access-log\n' +
+          'Restart=on-failure\nRestartSec=3\nUMask=0077\nNoNewPrivileges=true\nPrivateTmp=true\nProtectSystem=strict\nProtectHome=true\nReadWritePaths=/var/lib/wol-gateway\n\n' +
+          '[Install]\nWantedBy=multi-user.target\n';
+        setOutput('env','wol.env',env);
+        setOutput('mysql','mysql.json',mysql);
+        setOutput('website-service','wol-gateway.service',service('WOL Gateway website','app.main:app',value('app-port')));
+        setOutput('enrollment-service','wol-enrollment.service',service('WOL Gateway enrollment','app.enrollment_app:app','18089'));
+        outputs.classList.add('visible');
+        outputs.scrollIntoView({behavior:'smooth',block:'start'});
+      });
+    })();
+  </script>
+</body>
+</html>

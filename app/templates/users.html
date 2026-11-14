@@ -1,0 +1,249 @@
+{% extends "base.html" %}
+{% from "_controls.html" import action_icon, status_select %}
+{% block title %}用户管理{% endblock %}
+{% block content %}
+  <div class="page-heading">
+    <div class="page-title-wrap">
+      <div class="page-title">
+        <a href="/" class="back-icon" aria-label="返回" title="返回">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M19 12H5m7 7-7-7 7-7" />
+          </svg>
+        </a>
+        <h1>用户管理</h1>
+      </div>
+    </div>
+  </div>
+  <section class="card user-list-card">
+    <div class="section-heading list-heading">
+      <h2>用户列表 <span id="user-list-count" class="count-pill">0</span></h2>
+      <form id="user-search-form"
+            class="search-form list-search-form"
+            onsubmit="event.preventDefault()">
+        <input id="user-search"
+               type="search"
+               placeholder="搜索账号"
+               aria-label="搜索账号"
+               autocomplete="off"><span class="search-field-icon" aria-hidden="true">{{ action_icon("搜索") }}</span>
+      </form>
+    </div>
+    <div class="card-toolbar list-toolbar">
+      <div class="toolbar-bulk" id="user-bulk-actions">
+        <div class="toolbar-action-group" data-toolbar-default>
+          {{ status_select('user-status-filter', user=true) }}
+          <button type="button"
+                  id="user-create-toggle"
+                  data-default-action
+                  class="outline icon-button"
+                  aria-label="创建用户"
+                  title="创建用户">{{ action_icon("添加") }}</button>
+        </div>
+        <div class="toolbar-action-group" data-toolbar-selected hidden inert>
+          <div id="user-bulk-state" class="user-bulk-state" hidden>
+            <select id="user-bulk-state-action" aria-label="启用或禁用">
+              <option value="enable">启用</option>
+              <option value="disable">禁用</option>
+            </select>
+          </div>
+          <button type="button"
+                  data-bulk="enable"
+                  class="gray icon-button"
+                  title="启用"
+                  aria-label="启用"
+                  hidden>{{ action_icon("启用") }}</button>
+          <button type="button"
+                  data-bulk="disable"
+                  class="gray icon-button"
+                  title="禁用"
+                  aria-label="禁用"
+                  hidden>{{ action_icon("禁用") }}</button>
+          <button type="button"
+                  data-bulk="password"
+                  class="gray icon-button"
+                  title="批量修改密码"
+                  aria-label="批量修改密码"
+                  hidden>{{ action_icon("编辑") }}</button>
+          <button type="button"
+                  data-bulk="permissions"
+                  class="gray icon-button"
+                  title="批量设置权限"
+                  aria-label="批量设置权限"
+                  hidden>{{ action_icon("权限设置") }}</button>
+          <button type="button"
+                  data-bulk="delete"
+                  class="danger icon-button"
+                  title="删除"
+                  aria-label="删除"
+                  hidden>{{ action_icon("删除") }}</button>
+        </div>
+      </div>
+      <span id="user-selection-count"
+            class="selection-count"
+            role="status"
+            aria-live="polite"
+            hidden></span>
+    </div>
+    <div class="table-scroll user-table-scroll" tabindex="0" aria-label="用户列表">
+      <table id="user-table"
+             class="user-list"
+             data-sort="{{ sort }}"
+             data-direction="{{ direction }}">
+        <thead>
+          <tr>
+            <th class="check-cell">
+              <input id="user-select-all" type="checkbox" aria-label="全选本页">
+            </th>
+            <th data-sort-key="username">账号</th>
+            <th data-sort-key="gateway_count">网关数量</th>
+            <th data-sort-key="device_count">设备数量</th>
+            <th data-sort-key="share_count">分享数量</th>
+            <th class="actions-cell">操作</th>
+          </tr>
+        </thead>
+        <tbody id="user-list-body">
+          <tr>
+            <td colspan="6" class="scan-loading-cell"><span class="scan-loading-status"><i class="scan-loading-spinner" aria-hidden="true"></i><span>正在读取用户…</span></span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+  <dialog id="create-user-dialog"
+          class="ui-dialog"
+          aria-labelledby="create-user-title">
+    <form id="create-user-form">
+      <div class="dialog-heading">
+        <span class="dialog-symbol" aria-hidden="true">{{ action_icon("添加") }}</span>
+        <h2 id="create-user-title">创建用户</h2>
+      </div>
+      <div class="user-password-fields">
+        <div class="user-form-field">
+          <label for="new-username">登录账号</label>
+          <input id="new-username"
+                 name="username"
+                 required
+                 minlength="3"
+                 maxlength="32"
+                 pattern="[A-Za-z0-9][A-Za-z0-9_.\-]{2,31}"
+                 autocomplete="off"
+                 autocapitalize="none"
+                 spellcheck="false"
+                 aria-describedby="user-username-help">
+          <p id="user-username-help" class="field-note">3至32位字母、数字、点、下划线或短横线。</p>
+        </div>
+        <div class="user-form-field">
+          <label for="new-user-password">登录密码</label>
+          <input id="new-user-password"
+                 name="password"
+                 type="password"
+                 required
+                 minlength="8"
+                 maxlength="128"
+                 autocomplete="new-password"
+                 aria-describedby="user-password-help">
+          <p id="user-password-help" class="field-note">自定义8至128个字符的密码。</p>
+        </div>
+      </div>
+      <div class="dialog-actions">
+        <button type="button"
+                id="user-create-cancel"
+                class="gray"
+                onclick="closeDialog('create-user-dialog')">取消</button>
+        <button type="submit">创建用户</button>
+      </div>
+    </form>
+  </dialog>
+  <dialog id="user-password-dialog"
+          class="ui-dialog"
+          aria-labelledby="user-password-title">
+    <form id="user-password-form">
+      <div class="dialog-heading">
+        <span class="dialog-symbol" aria-hidden="true">{{ action_icon("编辑") }}</span>
+        <h2 id="user-password-title">编辑用户</h2>
+      </div>
+      <div class="user-password-fields">
+        <ul id="user-password-name"
+            class="confirmation-targets"
+            data-no-i18n
+            hidden>
+        </ul>
+        <div class="user-form-field" id="user-edit-username-field">
+          <label for="user-edit-username">登录账号</label>
+          <input id="user-edit-username"
+                 name="username"
+                 required
+                 minlength="3"
+                 maxlength="32"
+                 pattern="[A-Za-z0-9][A-Za-z0-9_.\-]{2,31}"
+                 autocomplete="off"
+                 autocapitalize="none"
+                 spellcheck="false">
+        </div>
+        <div class="user-form-field">
+          <label for="user-password-new">新密码</label>
+          <input id="user-password-new"
+                 name="password"
+                 type="password"
+                 minlength="8"
+                 maxlength="128"
+                 autocomplete="new-password"
+                 aria-describedby="user-password-reset-help">
+          <p id="user-password-reset-help" class="field-note">留空则保留原密码。</p>
+        </div>
+      </div>
+      <div class="dialog-actions">
+        <button type="button"
+                class="gray"
+                onclick="closeDialog('user-password-dialog')">取消</button>
+        <button type="submit">保存</button>
+      </div>
+    </form>
+  </dialog>
+  <dialog id="user-permissions-dialog"
+          class="ui-dialog editor-dialog gateway-editor user-permissions-dialog"
+          aria-labelledby="user-permissions-title">
+    <form id="user-permissions-form">
+      <div class="dialog-heading">
+        <span class="dialog-symbol" aria-hidden="true">{{ action_icon("权限设置") }}</span>
+        <h2 id="user-permissions-title">权限设置</h2>
+        <button type="button"
+                class="gateway-editor-close"
+                data-no-icon
+                aria-label="关闭"
+                title="关闭"
+                onclick="closeDialog('user-permissions-dialog')">{{ action_icon("关闭") }}</button>
+      </div>
+      <div class="gateway-editor-body user-permissions-body">
+        <p id="user-permissions-name" class="field-note" data-no-i18n></p>
+        <ul id="user-permissions-targets"
+            class="confirmation-targets"
+            data-no-i18n
+            hidden>
+        </ul>
+        <p id="user-permissions-note"
+           class="field-note"
+           hidden>默认勾选所选用户共同拥有的权限。保存后，所有所选用户将统一使用勾选的权限。</p>
+        <div class="permission-groups">
+          {% for group in ['账户', '网关', '设备'] %}
+            <fieldset class="permission-group">
+              <legend>{{ group }}</legend>
+              {% for key, label, section in permission_catalog if section == group %}
+                <label class="permission-choice">
+                  <input type="checkbox"
+                         name="permission"
+                         value="{{ key }}"><span>{{ label }}</span>
+                </label>
+              {% endfor %}
+            </fieldset>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="dialog-actions">
+        <button type="submit" disabled>保存</button>
+      </div>
+    </form>
+  </dialog>
+{% endblock %}
+{% block script %}
+  <script data-page-script src="/static/users.js?v=20261106-07"></script>
+{% endblock %}

@@ -1,0 +1,15 @@
+{% macro gateway_info(gw) -%}
+  名称：{{ gw.name or '未命名网关' }}
+  MAC：{{ (gw.mac or '')|fmt_mac }}
+  IP：{{ gw.ip or '—' }}
+  网关状态：{{ gateway_labels[gw|gateway_state] }}
+  WiFi SSID：{{ gw.wifi_ssid or '—' }}
+  固件版本：{{ gw.firmware_version or '—' }}
+  最后心跳：{{ gw.last_heartbeat or '—' }}
+  子网掩码：{{ gw.netmask or '—' }}
+  路由地址：{{ gw.gateway_ip or '—' }}
+  扫描网段：{{ gw.scan_cidr or '—' }}
+  Ping 周期：{{ gw.ping_interval }}s
+  心跳周期：{{ gw.heartbeat_send_interval }}s
+  心跳超时：{{ gw.heartbeat_timeout }}s
+{%- endmacro %}
