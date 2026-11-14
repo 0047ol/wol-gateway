@@ -554,9 +554,9 @@ static esp_err_t setup_post(httpd_req_t *req)
         }
     }
     if (!error && !wol_wifi_valid(ssid, pass)) error = "Wi-Fi 名称或密码格式无效";
-    if (!error && (!*broker || strlen(broker) >= 192 ||
+    if (!error && (*broker && (strlen(broker) >= 192 ||
         (strncmp(broker, "mqtt://", 7) != 0 && strncmp(broker, "mqtts://", 8) != 0) ||
-        !strstr(broker, "://")[3] || strchr(broker, '@') || strchr(broker, ' ') || strchr(broker, '\n')))
+        !strstr(broker, "://")[3] || strchr(broker, '@') || strchr(broker, ' ') || strchr(broker, '\n'))))
         error = "MQTT 地址无效，请填写 mqtt://主机:端口 或 mqtts://主机:端口";
     if (!error && *pairing && !pairing_valid) error = "配对码格式无效，请复制后台最新的 16 位十六进制配对码";
     if (!error && *key && (strlen(key) < 16 || strlen(key) > 64))
@@ -569,7 +569,7 @@ static esp_err_t setup_post(httpd_req_t *req)
         return api_reply(req, "400 Bad Request", false, error);
     }
     // Do not erase automatically provisioned credentials when changing Wi-Fi.
-    esp_err_t err = wol_config_set_setup(ssid, pass, pairing, key);
+    esp_err_t err = wol_config_set_setup(ssid, pass, broker, pairing, key);
     if (err != ESP_OK) {
         cJSON_Delete(obj);
         return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Could not save configuration");

@@ -610,7 +610,7 @@ static void service_task(void *arg)
         // when its endpoint/account changes, instead of using stale credentials.
         // Enrollment must run before MQTT can receive its first command.
         enrollment_pending = *cfg->pairing_code || !*cfg->mqtt_username || !*cfg->mqtt_password ||
-            strcmp(cfg->mqtt_username,wol_mac) != 0 || strcmp(cfg->broker,"mqtts://YOUR_SERVER_HOST:8883") != 0;
+            strcmp(cfg->mqtt_username,wol_mac) != 0;
         if (wol_network_ready() && enrollment_pending) {
             enrolling = true;
             if (wol_enroll()) { wol_settings_get(cfg); enrollment_pending = false; wol_binding_retry(); }

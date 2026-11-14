@@ -88,7 +88,7 @@ void wol_config_init(void)
     current.heartbeat_interval = 15;
     current.scan_concurrency = 8;
     strlcpy(current.broadcast, "255.255.255.255", sizeof(current.broadcast));
-    strlcpy(current.broker, "mqtts://YOUR_SERVER_HOST:8883", sizeof(current.broker));
+    strlcpy(current.broker, WOL_DEFAULT_BROKER, sizeof(current.broker));
     nvs_handle_t h;
     if (nvs_open("wol", NVS_READONLY, &h) == ESP_OK) {
         uint32_t version = 0;
@@ -105,6 +105,7 @@ void wol_config_init(void)
         free(saved);
         nvs_close(h);
     }
+    if (!*current.broker) strlcpy(current.broker, WOL_DEFAULT_BROKER, sizeof(current.broker));
 }
 
 void wol_config_get(wol_config_t *out)
@@ -162,9 +163,11 @@ esp_err_t wol_config_set_wifi(const char *ssid, const char *password)
     return err;
 }
 
-esp_err_t wol_config_set_setup(const char *ssid, const char *password, const char *pairing, const char *key)
+esp_err_t wol_config_set_setup(const char *ssid, const char *password, const char *broker,
+    const char *pairing, const char *key)
 {
-    if (!wol_wifi_valid(ssid, password)) return ESP_ERR_INVALID_ARG;
+    if (!wol_wifi_valid(ssid, password) || !broker || strlen(broker) >= sizeof(current.broker))
+        return ESP_ERR_INVALID_ARG;
     char normalized[17] = {0};
     if ((*pairing && !wol_pairing_code(pairing, normalized)) ||
         (*key && (strlen(key) < 16 || strlen(key) > 64))) return ESP_ERR_INVALID_ARG;
@@ -174,7 +177,7 @@ esp_err_t wol_config_set_setup(const char *ssid, const char *password, const cha
     *cfg = current;
     strlcpy(cfg->ssid, ssid, sizeof(cfg->ssid));
     strlcpy(cfg->password, password, sizeof(cfg->password));
-    strlcpy(cfg->broker, "mqtts://YOUR_SERVER_HOST:8883", sizeof(cfg->broker));
+    strlcpy(cfg->broker, *broker ? broker : WOL_DEFAULT_BROKER, sizeof(cfg->broker));
     if (*pairing || *key) {
         strlcpy(cfg->pairing_code, normalized, sizeof(cfg->pairing_code));
         strlcpy(cfg->bind_key, *pairing ? "" : key, sizeof(cfg->bind_key));
@@ -204,7 +207,6 @@ esp_err_t wol_config_set_enrollment(const char *pairing, const char *key, const 
         strlcpy(cfg->mqtt_password, password, sizeof(cfg->mqtt_password));
         strlcpy(cfg->bind_key, new_key, sizeof(cfg->bind_key));
         cfg->pairing_code[0] = 0;
-        strlcpy(cfg->broker, "mqtts://YOUR_SERVER_HOST:8883", sizeof(cfg->broker));
         err = save_locked(cfg);
     }
     xSemaphoreGive(config_lock);

@@ -33,6 +33,8 @@ typedef struct {
     int scan_concurrency; \
     int device_count;
 
+#define WOL_DEFAULT_BROKER "mqtts://YOUR_SERVER_HOST:8883"
+
 typedef struct {
     WOL_SETTINGS_FIELDS
     char pairing_code[17];
@@ -56,7 +58,8 @@ void wol_config_get(wol_config_t *out);
 void wol_settings_get(wol_settings_t *out);
 esp_err_t wol_config_save(const wol_config_t *cfg);
 esp_err_t wol_config_set_wifi(const char *ssid, const char *password);
-esp_err_t wol_config_set_setup(const char *ssid, const char *password, const char *pairing, const char *key);
+esp_err_t wol_config_set_setup(const char *ssid, const char *password, const char *broker,
+    const char *pairing, const char *key);
 esp_err_t wol_config_set_enrollment(const char *pairing, const char *key, const char *username,
     const char *password, const char *new_key);
 esp_err_t wol_config_set_bind_key(const char *key);
