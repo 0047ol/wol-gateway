@@ -13,7 +13,7 @@ from fastapi.responses import Response
 
 router = APIRouter()
 ROOT = Path(__file__).resolve().parents[1]
-FIRMWARE_VERSION = "0.8.7"
+FIRMWARE_VERSION = "0.8.8"
 PC_VERSION = "1.3.2"
 
 # Explicit runtime source list: stale or privately added server files are excluded.
