@@ -16,6 +16,12 @@ The deployment configurator generates server configuration files locally in your
 - Signed firmware verification, remote OTA, and rollback after failed updates.
 - SQLite for local development, MySQL for deployment, and MQTT for gateway-to-server communication.
 
+## Hardware Used by the Maintainer
+
+The maintainer uses this compact ESP32-C3 USB dongle as a gateway, with 4 MB flash. The photo shows the enclosure and the board inside.
+
+<img src="screenshots/esp32c3-usb-dongle-en.png" alt="ESP32-C3 USB dongle used by the maintainer, with its internal board shown alongside" width="600">
+
 ## Repository Layout
 
 | Path | Contents |

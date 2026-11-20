@@ -41,6 +41,8 @@ def source_paths():
         ROOT / "screenshots" / "device-list-mobile.png",
         ROOT / "screenshots" / "gateway-overview-desktop-en.png",
         ROOT / "screenshots" / "device-list-mobile-en.png",
+        ROOT / "screenshots" / "esp32c3-usb-dongle.png",
+        ROOT / "screenshots" / "esp32c3-usb-dongle-en.png",
     ]
     for base, extensions in (
         (ROOT / "app", {".py", ".js", ".css", ".html", ".pem"}),

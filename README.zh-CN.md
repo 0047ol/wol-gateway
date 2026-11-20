@@ -16,6 +16,12 @@
 - 固件签名验证、远程 OTA 与失败回滚。
 - SQLite 本地开发、MySQL 部署；MQTT 用于网关与服务端通信。
 
+## 自用硬件
+
+目前自用的是下图这款 ESP32-C3 USB 小型网关，配备 4 MB Flash。图片展示了外壳和内部电路板。
+
+<img src="screenshots/esp32c3-usb-dongle.png" alt="自用 ESP32-C3 USB 网关及内部电路板" width="600">
+
 ## 目录
 
 | 路径 | 内容 |
