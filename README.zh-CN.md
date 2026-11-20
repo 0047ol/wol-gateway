@@ -1,5 +1,7 @@
 # WOL Gateway
 
+[English](README.md) | 简体中文
+
 ![网关管理桌面界面](screenshots/gateway-overview-desktop.png)
 
 ![设备列表移动端界面](screenshots/device-list-mobile.png)
@@ -72,4 +74,3 @@ Windows 服务可使用 `windows-agent/native/Build.ps1` 构建。硬件刷写�
 
 依赖、字体、图标、证书及其他第三方组件的许可需另行检查；本项目许可证不覆盖第三方材料。
 
-English documentation: [README.md](README.md)。

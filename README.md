@@ -1,5 +1,7 @@
 # WOL Gateway
 
+English | [简体中文](README.zh-CN.md)
+
 ![Gateway management on desktop](screenshots/gateway-overview-desktop-en.png)
 
 ![Device list on mobile](screenshots/device-list-mobile-en.png)
@@ -72,4 +74,3 @@ This project is licensed under GNU Affero General Public License v3.0 or later; 
 
 Check the licenses of dependencies, fonts, icons, certificates, and other third-party components separately. This project's license does not cover third-party materials.
 
-简体中文说明见 [README.zh-CN.md](README.zh-CN.md)。
